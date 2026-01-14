@@ -1,0 +1,57 @@
+# Git
+.git
+.gitignore
+.github
+
+# IDE
+.idea
+*.iml
+.vscode
+*.swp
+
+# Build artifacts
+target/
+*.class
+
+# Logs
+*.log
+logs/
+test-output/
+
+# Allure
+.allure/
+allure-results/
+allure-report/
+
+# Certificates (will be mounted as volume)
+*.jks
+*.p12
+*.pem
+*.key
+kafka_key/
+
+# Environment
+.env
+*.env
+local.properties
+
+# Documentation (not needed in container)
+docs/
+*.md
+!README.md
+
+# Python scripts (used for generation)
+*.py
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker/
+
+# Maven wrapper (using system Maven)
+.mvn/
+mvnw
+mvnw.cmd

@@ -1,0 +1,296 @@
+name: Kafka Tests - Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      thread_count:
+        description: 'Number of parallel threads'
+        default: '2'
+        type: choice
+        options: ['1','2']
+      test_profile:
+        description: 'Maven test profile'
+        default: 'parallel'
+        type: choice
+        options: ['sequential','parallel']
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ─────────────────────────────────────────────
+      # Checkout source code
+      # ─────────────────────────────────────────────
+      - uses: actions/checkout@v4
+
+      # ─────────────────────────────────────────────
+      # Setup Java
+      # ─────────────────────────────────────────────
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+
+      # ─────────────────────────────────────────────
+      # Setup Kafka SSL certificates
+      # ─────────────────────────────────────────────
+      - name: Setup Kafka SSL certificates
+        run: |
+          mkdir -p $HOME/kafka_key
+          echo "${{ secrets.KAFKA_TRUSTSTORE_BASE64 }}" | base64 -d > $HOME/kafka_key/kafka.truststore.jks
+          echo "${{ secrets.KAFKA_KEYSTORE_BASE64 }}" | base64 -d > $HOME/kafka_key/kafka.keystore.p12
+          echo "KAFKA_SSL_TRUSTSTORE_LOCATION=$HOME/kafka_key/kafka.truststore.jks" >> $GITHUB_ENV
+          echo "KAFKA_SSL_KEYSTORE_LOCATION=$HOME/kafka_key/kafka.keystore.p12" >> $GITHUB_ENV
+          echo "✓ Kafka SSL certificates configured"
+
+      # ─────────────────────────────────────────────
+      # Restore Allure history from gh-pages
+      # ─────────────────────────────────────────────
+      - name: Checkout gh-pages (Allure history)
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages
+        continue-on-error: true
+
+      - name: Backup Allure history to temp
+        run: |
+          mkdir -p /tmp/allure-history
+          if [ -d gh-pages/smoke-history ]; then
+            cp -r gh-pages/smoke-history/* /tmp/allure-history/
+            echo "Backed up $(ls -1 /tmp/allure-history 2>/dev/null | wc -l) history files"
+          else
+            echo "No smoke test history found (first run or gh-pages branch doesn't exist)"
+          fi
+
+      # ─────────────────────────────────────────────
+      # Create Allure environment.properties in TEMP
+      # ─────────────────────────────────────────────
+      - name: Create Allure environment info in temp
+        run: |
+          # Определяем количество потоков: 1 для scheduled/push/PR, из input для manual
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event_name }}" = "push" ] || [ "${{ github.event_name }}" = "pull_request" ]; then
+            THREAD_COUNT=1
+            PROFILE="sequential"
+          else
+            THREAD_COUNT=${{ github.event.inputs.thread_count || '2' }}
+            PROFILE=${{ github.event.inputs.test_profile || 'parallel' }}
+          fi
+          
+          mkdir -p /tmp/allure-env
+          cat > /tmp/allure-env/environment.properties << EOF
+          Test.Type=Kafka Smoke Tests
+          Test.Tags=smoke,critical
+          Kafka.Broker=${{ secrets.KAFKA_BOOTSTRAP_SERVERS || 'kafka-xxxxx.aivencloud.com:12345' }}
+          Threads=${THREAD_COUNT}
+          Profile=${PROFILE}
+          Execution.Type=${{ github.event_name }}
+          Environment=CI
+          Platform=ubuntu-latest
+          Java.Version=17
+          Maven.Version=3.8+
+          Framework=JUnit 5
+          SSL.Enabled=true
+          Workflow=${{ github.workflow }}
+          Run.Number=${{ github.run_number }}
+          Triggered.By=${{ github.actor }}
+          Branch=${{ github.ref_name }}
+          Commit=${{ github.sha }}
+          Repository=${{ github.repository }}
+          EOF
+          
+          # Сохраняем в переменные окружения для следующих шагов
+          echo "TEST_THREAD_COUNT=${THREAD_COUNT}" >> $GITHUB_ENV
+          echo "TEST_PROFILE=${PROFILE}" >> $GITHUB_ENV
+          
+          echo "Created environment.properties in /tmp/allure-env"
+          echo "Thread count: ${THREAD_COUNT}"
+          echo "Profile: ${PROFILE}"
+          cat /tmp/allure-env/environment.properties
+
+      # ─────────────────────────────────────────────
+      # Copy environment.properties BEFORE clean
+      # ─────────────────────────────────────────────
+      - name: Prepare Allure results directory
+        run: |
+          mkdir -p target/allure-results
+          cp /tmp/allure-env/environment.properties target/allure-results/
+          echo "Copied environment.properties to target/allure-results"
+
+      # ─────────────────────────────────────────────
+      # Run Kafka smoke tests
+      # ─────────────────────────────────────────────
+      - name: Run Kafka smoke tests
+        env:
+          KAFKA_BOOTSTRAP_SERVERS: ${{ secrets.KAFKA_BOOTSTRAP_SERVERS }}
+          KAFKA_SSL_TRUSTSTORE_PASSWORD: ${{ secrets.KAFKA_SSL_TRUSTSTORE_PASSWORD }}
+          KAFKA_SSL_KEYSTORE_PASSWORD: ${{ secrets.KAFKA_SSL_KEYSTORE_PASSWORD }}
+          KAFKA_REST_API_PASSWORD: ${{ secrets.KAFKA_REST_API_PASSWORD }}
+          KAFKA_SCHEMA_REGISTRY_PASSWORD: ${{ secrets.KAFKA_SCHEMA_REGISTRY_PASSWORD }}
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "   Smoke Test Configuration"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Event type: ${{ github.event_name }}"
+          echo "Threads: ${{ env.TEST_THREAD_COUNT }}"
+          echo "Profile: ${{ env.TEST_PROFILE }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          
+          # Если profile=sequential, не используем -P опцию
+          if [ "${{ env.TEST_PROFILE }}" = "sequential" ]; then
+            mvn clean test \
+              -Dgroups=smoke \
+              -Denv=ci \
+              -Dkafka.ssl.truststore.location=${{ env.KAFKA_SSL_TRUSTSTORE_LOCATION }} \
+              -Dkafka.ssl.keystore.location=${{ env.KAFKA_SSL_KEYSTORE_LOCATION }} \
+              -Dkafka.ssl.truststore.password=${{ secrets.KAFKA_SSL_TRUSTSTORE_PASSWORD }} \
+              -Dkafka.ssl.keystore.password=${{ secrets.KAFKA_SSL_KEYSTORE_PASSWORD }} \
+              -Dallure.results.directory=target/allure-results
+          else
+            mvn clean test \
+              -P${{ env.TEST_PROFILE }} \
+              -Dgroups=smoke \
+              -Denv=ci \
+              -Dthread.count=${{ env.TEST_THREAD_COUNT }} \
+              -Dkafka.ssl.truststore.location=${{ env.KAFKA_SSL_TRUSTSTORE_LOCATION }} \
+              -Dkafka.ssl.keystore.location=${{ env.KAFKA_SSL_KEYSTORE_LOCATION }} \
+              -Dkafka.ssl.truststore.password=${{ secrets.KAFKA_SSL_TRUSTSTORE_PASSWORD }} \
+              -Dkafka.ssl.keystore.password=${{ secrets.KAFKA_SSL_KEYSTORE_PASSWORD }} \
+              -Dallure.results.directory=target/allure-results
+          fi
+
+      # ─────────────────────────────────────────────
+      # Restore environment.properties AFTER clean
+      # ─────────────────────────────────────────────
+      - name: Restore environment.properties after clean
+        if: always()
+        run: |
+          if [ ! -f target/allure-results/environment.properties ]; then
+            cp /tmp/allure-env/environment.properties target/allure-results/
+            echo "Restored environment.properties after mvn clean"
+          else
+            echo "environment.properties already exists"
+          fi
+
+      # ─────────────────────────────────────────────
+      # Create Allure executor.json AFTER tests
+      # ─────────────────────────────────────────────
+      - name: Create Allure executor info
+        if: always()
+        run: |
+          cat > target/allure-results/executor.json << EOF
+          {
+            "name": "GitHub Actions",
+            "type": "github",
+            "buildName": "${{ github.workflow }} #${{ github.run_number }}",
+            "buildUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+            "buildOrder": ${{ github.run_number }},
+            "reportUrl": "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/smoke/"
+          }
+          EOF
+
+      # ─────────────────────────────────────────────
+      # Restore Allure history before report generation
+      # ─────────────────────────────────────────────
+      - name: Restore Allure history
+        if: always()
+        run: |
+          mkdir -p target/allure-results/history
+          if [ -d /tmp/allure-history ] && [ "$(ls -A /tmp/allure-history 2>/dev/null)" ]; then
+            cp -r /tmp/allure-history/* target/allure-results/history/
+            echo "Restored $(ls -1 target/allure-results/history 2>/dev/null | wc -l) history files"
+          else
+            echo "No history to restore"
+          fi
+
+      # ─────────────────────────────────────────────
+      # Verify environment.properties exists
+      # ─────────────────────────────────────────────
+      - name: Verify Allure files
+        if: always()
+        run: |
+          echo "Files in target/allure-results:"
+          ls -lah target/allure-results/ | grep -E "environment|executor" || echo "⚠️  Missing files!"
+          if [ -f target/allure-results/environment.properties ]; then
+            echo ""
+            echo "environment.properties content:"
+            cat target/allure-results/environment.properties
+          fi
+
+      # ─────────────────────────────────────────────
+      # Generate Allure report
+      # ─────────────────────────────────────────────
+      - name: Generate Allure Report
+        if: always()
+        run: mvn allure:report
+
+      # ─────────────────────────────────────────────
+      # Deploy Allure report to gh-pages (smoke subdirectory)
+      # ─────────────────────────────────────────────
+      - name: Deploy Allure report to GitHub Pages
+        if: always()
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: target/site/allure-maven-plugin
+          destination_dir: smoke
+          keep_files: true
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'
+
+      - name: Report deployment info
+        if: always()
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "   Smoke Test Report Deployment"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "   Smoke Report URL:"
+          echo "   https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/smoke/"
+          echo ""
+          echo "   All Tests Report URL:"
+          echo "   https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+          echo ""
+          echo "   Note: GitHub Pages deployment may take 5-10 minutes"
+          echo ""
+          echo "   Check deployment status:"
+          echo "   https://github.com/${{ github.repository }}/deployments"
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      # ─────────────────────────────────────────────
+      # Upload artifacts
+      # ─────────────────────────────────────────────
+      - name: Upload Allure Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results-smoke-tests
+          path: target/allure-results
+          retention-days: 30
+
+      - name: Upload Allure Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-report-smoke-tests
+          path: target/site/allure-maven-plugin
+          retention-days: 30
+
+      - name: Upload Test Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-smoke-tests
+          path: target/logs/
+          retention-days: 7
+
+      - name: Publish Test Results
+        if: always()
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          files: target/surefire-reports/*.xml
+          check_name: Test Results - Smoke Tests

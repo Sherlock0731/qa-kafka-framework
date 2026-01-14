@@ -1,0 +1,115 @@
+version: '3.9'
+
+services:
+  # Основной сервис для запуска тестов
+  kafka-tests:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: kafka-test-runner
+    image: kafka-test-framework:latest
+    
+    # Переменные окружения
+    environment:
+      # Kafka Connection
+      - KAFKA_BOOTSTRAP_SERVERS=KAFKA_BOOTSTRAP_SERVERS
+      - KAFKA_SECURITY_PROTOCOL=SSL
+      
+      # SSL Configuration
+      - KAFKA_SSL_TRUSTSTORE_LOCATION=/app/kafka_key/kafka.truststore.jks
+      - KAFKA_SSL_KEYSTORE_LOCATION=/app/kafka_key/kafka.keystore.p12
+      - KAFKA_SSL_TRUSTSTORE_PASSWORD=${KAFKA_SSL_TRUSTSTORE_PASSWORD}
+      - KAFKA_SSL_KEYSTORE_PASSWORD=${KAFKA_SSL_KEYSTORE_PASSWORD}
+      
+      # Kafka REST API
+      - KAFKA_REST_API_URL=KAFKA_REST_API_URL
+      - KAFKA_REST_API_USERNAME=
+      - KAFKA_REST_API_PASSWORD=${KAFKA_REST_API_PASSWORD}
+      
+      # Schema Registry
+      - KAFKA_SCHEMA_REGISTRY_URL=KAFKA_SCHEMA_REGISTRY_URL
+      - KAFKA_SCHEMA_REGISTRY_USERNAME=
+      - KAFKA_SCHEMA_REGISTRY_PASSWORD=${KAFKA_SCHEMA_REGISTRY_PASSWORD}
+      
+      # Test Configuration
+      - ENV=ci
+      - THREAD_COUNT=4
+      - TEST_TIMEOUT_SECONDS=30
+      - MAVEN_OPTS=-Xmx2048m -Xms1024m
+    
+    # Монтирование томов
+    volumes:
+      # Сертификаты Kafka (ОБЯЗАТЕЛЬНО!)
+      - ${KAFKA_CERTS_PATH:-./kafka_key}:/app/kafka_key:ro
+      
+      # Логи и отчеты
+      - ./target:/app/target
+      
+      # Maven кеш для ускорения повторных запусков
+      - maven-cache:/root/.m2
+    
+    # Команда по умолчанию
+    command: ["test"]
+    
+    # Ограничения ресурсов
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '2'
+          memory: 2G
+    
+    # Сеть
+    networks:
+      - kafka-test-network
+    
+    # Перезапуск
+    restart: "no"
+
+  # Сервис для запуска только smoke тестов
+  kafka-tests-smoke:
+    extends: kafka-tests
+    container_name: kafka-test-smoke
+    command: ["test", "-Dgroups=smoke"]
+
+  # Сервис для параллельного запуска
+  kafka-tests-parallel:
+    extends: kafka-tests
+    container_name: kafka-test-parallel
+    command: ["test", "-Pparallel", "-Dthread.count=8"]
+    deploy:
+      resources:
+        limits:
+          cpus: '8'
+          memory: 8G
+
+  # Сервис для генерации Allure отчета
+  allure-report:
+    image: frankescobar/allure-docker-service:2.25.0
+    container_name: allure-report-server
+    ports:
+      - "5050:5050"
+      - "5252:5252"
+    environment:
+      - CHECK_RESULTS_EVERY_SECONDS=5
+      - KEEP_HISTORY=1
+      - SECURITY_USER=admin
+      - SECURITY_PASS=admin
+    volumes:
+      - ./target/allure-results:/app/allure-results
+      - ./target/allure-reports:/app/allure-reports
+    networks:
+      - kafka-test-network
+
+# Volumes
+volumes:
+  maven-cache:
+    driver: local
+
+# Networks
+networks:
+  kafka-test-network:
+    driver: bridge
+

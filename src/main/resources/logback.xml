@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    
+    <!-- Thread-safe file appender -->
+    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <file>target/logs/test-execution.log</file>
+        <append>true</append>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+        <prudent>true</prudent>
+    </appender>
+    
+    <!-- Console appender with thread information -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %highlight(%-5level) %cyan(%logger{36}) - %msg%n</pattern>
+        </encoder>
+    </appender>
+    
+    <!-- Separate appender for each thread -->
+    <appender name="SIFT" class="ch.qos.logback.classic.sift.SiftingAppender">
+        <discriminator>
+            <key>threadName</key>
+            <defaultValue>main</defaultValue>
+        </discriminator>
+        <sift>
+            <appender name="FILE-\${threadName}" class="ch.qos.logback.core.FileAppender">
+                <file>target/logs/thread-\${threadName}.log</file>
+                <append>true</append>
+                <encoder>
+                    <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</pattern>
+                </encoder>
+                <prudent>true</prudent>
+            </appender>
+        </sift>
+    </appender>
+    
+    <!-- Async wrapper for better performance -->
+    <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="FILE"/>
+        <queueSize>512</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <includeCallerData>false</includeCallerData>
+    </appender>
+    
+    <appender name="ASYNC_SIFT" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="SIFT"/>
+        <queueSize>512</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+    </appender>
+    
+    <!-- Root logger -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="ASYNC_FILE"/>
+        <appender-ref ref="ASYNC_SIFT"/>
+    </root>
+    
+    <!-- Framework loggers -->
+    <logger name="qa.autotest" level="DEBUG" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="ASYNC_FILE"/>
+        <appender-ref ref="ASYNC_SIFT"/>
+    </logger>
+    
+    <!-- Kafka logging -->
+    <logger name="org.apache.kafka" level="INFO"/>
+    
+    <!-- Suppress noisy libraries -->
+    <logger name="io.netty" level="WARN"/>
+    
+</configuration>
