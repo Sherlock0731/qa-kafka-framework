@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class: tests.consumer.ConsumerTests
+Test Method: testReadLatestOnly
+Display Name: TC-010: Чтение только новых сообщений (latest)
+Status: FAILED
+Execution Time: 2026-01-14 21:02:00
+Thread: main
+Tag: consumer
+Tag: critical
