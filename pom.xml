@@ -178,8 +178,8 @@
                         <allure.results.directory>${project.build.directory}/allure-results</allure.results.directory>
                         <!-- Max pool size to prevent ForkJoinPool from creating extra threads -->
                         <junit.jupiter.execution.parallel.config.fixed.max-pool-size>${thread.count}</junit.jupiter.execution.parallel.config.fixed.max-pool-size>
-                        <kafka.ssl.keystore.type>PKCS12</kafka.ssl.keystore.type>
-                        <kafka.ssl.truststore.type>JKS</kafka.ssl.truststore.type>
+                        <ssl.keystore.type>PKCS12</ssl.keystore.type>
+                        <ssl.truststore.type>JKS</ssl.truststore.type>
                     </systemPropertyVariables>
                     <argLine>
                         -javaagent:"${settings.localRepository}/org/aspectj/aspectjweaver/${aspectj.version}/aspectjweaver-${aspectj.version}.jar"
