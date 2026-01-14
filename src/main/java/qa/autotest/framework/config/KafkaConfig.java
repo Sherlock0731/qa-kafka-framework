@@ -75,6 +75,20 @@ public interface KafkaConfig extends Config {
     @Key("kafka.ssl.key.password")
     String sslKeyPassword();
     
+    /**
+     * SSL Keystore type (JKS, PKCS12)
+     */
+    @Key("kafka.ssl.keystore.type")
+    @DefaultValue("PKCS12")
+    String sslKeystoreType();
+    
+    /**
+     * SSL Truststore type (JKS, PKCS12)
+     */
+    @Key("kafka.ssl.truststore.type")
+    @DefaultValue("JKS")
+    String sslTruststoreType();
+    
     // ==================== API Configuration ====================
     
     /**
