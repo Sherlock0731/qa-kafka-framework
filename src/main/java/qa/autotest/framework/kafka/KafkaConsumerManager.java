@@ -68,7 +68,7 @@ public class KafkaConsumerManager {
             props.put("ssl.truststore.password", config.sslTruststorePassword());
             props.put("ssl.truststore.type", config.sslTruststoreType());
             props.put("ssl.keystore.location", config.sslKeystoreLocation());
-            props.put("ssl.keystore.password", config.sslKeystorePassword());
+            props.put("ssl.keystore.password", config.sslKeyPassword());
             props.put("ssl.keystore.type", config.sslKeystoreType());
             
             if (config.sslKeyPassword() != null) {
