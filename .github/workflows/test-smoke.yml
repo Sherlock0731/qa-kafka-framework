@@ -235,7 +235,7 @@ jobs:
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: target/site/allure-maven-plugin
+          publish_dir: target/allure-report
           destination_dir: smoke
           keep_files: true
           user_name: 'github-actions[bot]'
