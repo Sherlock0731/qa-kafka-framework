@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class: tests.consumer.ConsumerTests
+Test Method: testConsumerHeartbeat
+Display Name: TC-011B: Consumer heartbeat mechanism
+Status: FAILED
+Execution Time: 2026-01-14 20:00:38
+Thread: main
+Tag: consumer
+Tag: critical
