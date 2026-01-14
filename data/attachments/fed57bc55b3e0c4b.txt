@@ -1,0 +1,9 @@
+=== Test Execution Info ===
+
+Test Class: tests.performance.PerformanceTests
+Test Method: testProducerThroughput
+Display Name: TC-033: Producer throughput benchmark
+Status: FAILED
+Execution Time: 2026-01-14 20:21:25
+Thread: main
+Tag: performance
