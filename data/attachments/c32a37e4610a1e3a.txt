@@ -1,0 +1,11 @@
+=== Test Execution Info ===
+
+Test Class: tests.ordering.OrderingTests
+Test Method: testOrderingWithinPartition
+Display Name: TC-021: Гарантия порядка в одной партиции
+Status: FAILED
+Execution Time: 2026-01-14 20:38:52
+Thread: main
+Tag: smoke
+Tag: ordering
+Tag: critical
