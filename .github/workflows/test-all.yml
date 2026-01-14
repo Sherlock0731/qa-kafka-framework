@@ -1,20 +1,20 @@
-name: Kafka Tests - All
+name: Kafka Tests - All (Single Thread)
 
 on:
   workflow_dispatch:
     inputs:
       thread_count:
-        description: 'Number of parallel threads'
-        default: '2'
+        description: 'Number of parallel threads (IGNORED - always runs with 1 thread)'
+        default: '1'
         type: choice
-        options: ['1','2']
-      test_profile:
-        description: 'Maven test profile'
-        default: 'parallel'
+        options: ['1']
+      enable_parallel:
+        description: 'Enable parallel execution'
+        default: 'false'
         type: choice
-        options: ['sequential','parallel']
+        options: ['false', 'true']
   schedule:
-    - cron: '0 4 * * *' # Daily at 4 AM UTC - запускается с 1 потоком
+    - cron: '0 4 * * *' # Daily at 4 AM UTC - всегда запускается в 1 поток
 
 jobs:
   test-all:
@@ -48,6 +48,36 @@ jobs:
           echo "✓ Kafka SSL certificates configured"
 
       # ─────────────────────────────────────────────
+      # 🔍 DEBUG: Check KAFKA_BOOTSTRAP_SERVERS
+      # ─────────────────────────────────────────────
+      - name:    Debug KAFKA_BOOTSTRAP_SERVERS
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "   CRITICAL DEBUG INFO"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          if [ -z "$KAFKA_BOOTSTRAP_SERVERS" ]; then
+            echo "   KAFKA_BOOTSTRAP_SERVERS is EMPTY!"
+            echo "Length: 0"
+            echo ""
+            echo "   CRITICAL ERROR: Cannot run tests without Kafka connection!"
+            echo ""
+            echo "Please check your GitHub Secrets configuration:"
+            echo "  Settings → Secrets and variables → Actions → Secrets"
+            echo "  Or if using environment:"
+            echo "  Settings → Environments → [your-env] → Secrets"
+            echo ""
+            exit 1
+          else
+            echo "   KAFKA_BOOTSTRAP_SERVERS is SET"
+            echo "Length: ${#KAFKA_BOOTSTRAP_SERVERS}"
+            echo "First 30 chars: ${KAFKA_BOOTSTRAP_SERVERS:0:30}..."
+            echo "Last 10 chars: ...${KAFKA_BOOTSTRAP_SERVERS: -10}"
+          fi
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        env:
+          KAFKA_BOOTSTRAP_SERVERS: ${{ secrets.KAFKA_BOOTSTRAP_SERVERS }}
+
+      # ─────────────────────────────────────────────
       # Restore Allure history from gh-pages
       # ─────────────────────────────────────────────
       - name: Checkout gh-pages (Allure history)
@@ -72,13 +102,16 @@ jobs:
       # ─────────────────────────────────────────────
       - name: Create Allure environment info in temp
         run: |
-          # Определяем количество потоков: 1 для scheduled, из input для manual
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            THREAD_COUNT=1
-            PROFILE="sequential"
+          # ВСЕГДА запускаем в 1 поток для стабильности
+          THREAD_COUNT=1
+          
+          # Определяем использовать ли parallel профиль
+          if [ "${{ github.event.inputs.enable_parallel }}" = "true" ] && [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            USE_PARALLEL="true"
+            PROFILE="parallel"
           else
-            THREAD_COUNT=${{ github.event.inputs.thread_count || '2' }}
-            PROFILE=${{ github.event.inputs.test_profile || 'parallel' }}
+            USE_PARALLEL="false"
+            PROFILE="none"
           fi
           
           mkdir -p /tmp/allure-env
@@ -87,6 +120,7 @@ jobs:
           Kafka.Broker=${{ secrets.KAFKA_BOOTSTRAP_SERVERS || 'kafka-xxxxx.aivencloud.com:12345' }}
           Threads=${THREAD_COUNT}
           Profile=${PROFILE}
+          Parallel.Enabled=${USE_PARALLEL}
           Execution.Type=${{ github.event_name }}
           Environment=CI
           Platform=ubuntu-latest
@@ -104,12 +138,15 @@ jobs:
           
           # Сохраняем в переменные окружения для следующих шагов
           echo "TEST_THREAD_COUNT=${THREAD_COUNT}" >> $GITHUB_ENV
-          echo "TEST_PROFILE=${PROFILE}" >> $GITHUB_ENV
+          echo "USE_PARALLEL_PROFILE=${USE_PARALLEL}" >> $GITHUB_ENV
           
-          echo "Created environment.properties in /tmp/allure-env"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "   Test Configuration"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "Thread count: ${THREAD_COUNT}"
-          echo "Profile: ${PROFILE}"
-          cat /tmp/allure-env/environment.properties
+          echo "Use parallel profile: ${USE_PARALLEL}"
+          echo "Event type: ${{ github.event_name }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       # ─────────────────────────────────────────────
       # Copy environment.properties BEFORE clean
@@ -121,7 +158,7 @@ jobs:
           echo "Copied environment.properties to target/allure-results"
 
       # ─────────────────────────────────────────────
-      # Run Kafka tests - clean will delete target/
+      # Run Kafka tests - ВСЕГДА В 1 ПОТОК
       # ─────────────────────────────────────────────
       - name: Run Kafka tests
         env:
@@ -135,20 +172,35 @@ jobs:
           echo "   Test Execution Configuration"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "Event type: ${{ github.event_name }}"
-          echo "Threads: ${{ env.TEST_THREAD_COUNT }}"
-          echo "Profile: ${{ env.TEST_PROFILE }}"
+          echo "Threads: 1 (FORCED)"
+          echo "Parallel profile: ${{ env.USE_PARALLEL_PROFILE }}"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo ""
           
-          mvn clean test \
-            -P${{ env.TEST_PROFILE }} \
-            -Denv=ci \
-            -Dthread.count=${{ env.TEST_THREAD_COUNT }} \
+          # Строим Maven команду
+          MVN_CMD="mvn clean test -Denv=ci -Dthread.count=1"
+          
+          # Добавляем parallel профиль только если явно запрошено
+          if [ "${{ env.USE_PARALLEL_PROFILE }}" = "true" ]; then
+            MVN_CMD="$MVN_CMD -Pparallel"
+            echo "  Parallel execution ENABLED (but with thread.count=1)"
+          else
+            echo "  Sequential execution (no parallel profile)"
+          fi
+          
+          # Добавляем остальные параметры
+          MVN_CMD="$MVN_CMD \
             -Dkafka.ssl.truststore.location=${{ env.KAFKA_SSL_TRUSTSTORE_LOCATION }} \
             -Dkafka.ssl.keystore.location=${{ env.KAFKA_SSL_KEYSTORE_LOCATION }} \
             -Dkafka.ssl.truststore.password=${{ secrets.KAFKA_SSL_TRUSTSTORE_PASSWORD }} \
             -Dkafka.ssl.keystore.password=${{ secrets.KAFKA_SSL_KEYSTORE_PASSWORD }} \
-            -Dallure.results.directory=target/allure-results
+            -Dallure.results.directory=target/allure-results"
+          
+          echo "Executing: $MVN_CMD"
+          echo ""
+          
+          # Выполняем команду
+          eval $MVN_CMD
 
       # ─────────────────────────────────────────────
       # Restore environment.properties AFTER clean
