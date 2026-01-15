@@ -47,6 +47,10 @@ jobs:
           echo "KAFKA_SSL_KEYSTORE_LOCATION=$HOME/kafka_key/kafka.keystore.p12" >> $GITHUB_ENV
           echo "✓ Kafka SSL certificates configured"
 
+      - name: Debug keystore validity
+        run: |
+          keytool -list -keystore $HOME/kafka_key/kafka.keystore.p12 -storetype PKCS12 -storepass "${{ secrets.KAFKA_SSL_KEYSTORE_PASSWORD }}"
+
       # ─────────────────────────────────────────────
       #    DEBUG: Check KAFKA_BOOTSTRAP_SERVERS
       # ─────────────────────────────────────────────
