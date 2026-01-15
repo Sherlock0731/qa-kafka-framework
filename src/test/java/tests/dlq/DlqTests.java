@@ -167,7 +167,7 @@ public class DlqTests extends BaseTest {
         
         // Read from DLQ
         consumerManager.initConsumer(dlqTopic);
-        consumerManager.poll(2);
+        consumerManager.poll(10); // Увеличено до 10s для rebalancing
         
         List<ConsumerRecordDto> dlqRecords = AsyncTestHelper.pollWithRetry(consumerManager, 10, 1);
         assertThat(dlqRecords).hasSize(1);
@@ -198,7 +198,7 @@ public class DlqTests extends BaseTest {
         // Verify retry message in original topic
         consumerManager.close();
         consumerManager.initConsumer(topic);
-        consumerManager.poll(2);
+        consumerManager.poll(10); // Увеличено до 10s для rebalancing
         
         List<ConsumerRecordDto> retryRecords = AsyncTestHelper.pollWithRetry(consumerManager, 10, 1);
         assertThat(retryRecords).hasSize(1);
