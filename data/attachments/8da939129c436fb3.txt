@@ -1,0 +1,11 @@
+=== Test Execution Info ===
+
+Test Class: tests.offset.OffsetTests
+Test Method: testManualSyncCommit
+Display Name: TC-027: Ручной sync commit после обработки
+Status: FAILED
+Execution Time: 2026-01-15 06:45:21
+Thread: main
+Tag: smoke
+Tag: offset
+Tag: critical
