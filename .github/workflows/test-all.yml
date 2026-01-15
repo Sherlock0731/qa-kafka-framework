@@ -41,8 +41,8 @@ jobs:
       - name: Setup Kafka SSL certificates
         run: |
           mkdir -p $HOME/kafka_key
-          echo "${{ secrets.KAFKA_TRUSTSTORE_BASE64 }}" | base64 -d > $HOME/kafka_key/kafka.truststore.jks
-          echo "${{ secrets.KAFKA_KEYSTORE_BASE64 }}" | base64 -d > $HOME/kafka_key/kafka.keystore.p12
+          printf "%s" "${{ secrets.KAFKA_TRUSTSTORE_BASE64 }}" | base64 -d > $HOME/kafka_key/kafka.truststore.jks
+          printf "%s" "${{ secrets.KAFKA_KEYSTORE_BASE64 }}" | base64 -d > $HOME/kafka_key/kafka.keystore.p12
           echo "KAFKA_SSL_TRUSTSTORE_LOCATION=$HOME/kafka_key/kafka.truststore.jks" >> $GITHUB_ENV
           echo "KAFKA_SSL_KEYSTORE_LOCATION=$HOME/kafka_key/kafka.keystore.p12" >> $GITHUB_ENV
           echo "✓ Kafka SSL certificates configured"
