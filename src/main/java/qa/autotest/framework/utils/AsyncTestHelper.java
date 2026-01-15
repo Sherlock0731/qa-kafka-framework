@@ -40,8 +40,15 @@ public class AsyncTestHelper {
         long startTime = System.currentTimeMillis();
         long timeoutMillis = timeoutSeconds * 1000L;
         
+        // Дополнительное ожидание для remote Kafka (rebalancing, network latency)
+        try {
+            Thread.sleep(2000); // 2 секунды на rebalancing
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        
         while (System.currentTimeMillis() - startTime < timeoutMillis) {
-            List<ConsumerRecordDto> records = consumer.poll(2); // 2 seconds timeout
+            List<ConsumerRecordDto> records = consumer.poll(5); // Увеличено с 2 до 5 секунд
             
             if (!records.isEmpty()) {
                 allRecords.addAll(records);
@@ -54,9 +61,9 @@ public class AsyncTestHelper {
                 }
             }
             
-            // Small sleep between polls
+            // Small sleep between polls - увеличено для remote Kafka
             try {
-                Thread.sleep(500);
+                Thread.sleep(1000); // Увеличено с 500ms до 1000ms
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new RuntimeException("Interrupted while polling", e);

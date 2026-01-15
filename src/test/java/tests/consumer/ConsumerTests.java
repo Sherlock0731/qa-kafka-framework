@@ -383,15 +383,15 @@ public class ConsumerTests extends BaseTest {
         producerManager.flush();
         
         try {
-            Thread.sleep(3000); // Increased wait
+            Thread.sleep(5000); // Увеличено до 5s для remote Kafka
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
         
         // Initialize consumer and consume all
         consumerManager.initConsumer(topic);
-        consumerManager.poll(5); // Initial poll
-        List<ConsumerRecordDto> allRecords = AsyncTestHelper.pollWithRetry(consumerManager, 15, 20);
+        consumerManager.poll(10); // Увеличено до 10s для rebalancing
+        List<ConsumerRecordDto> allRecords = AsyncTestHelper.pollWithRetry(consumerManager, 30, 20); // Увеличено до 30s
         
         int firstRead = allRecords.size();
         assertThat(firstRead).isGreaterThan(0);
@@ -400,10 +400,10 @@ public class ConsumerTests extends BaseTest {
         // OR we need to manually seek to beginning
         consumerManager.close();
         consumerManager.initConsumer(topic);
-        consumerManager.poll(5);
+        consumerManager.poll(10); // Увеличено до 10s
         
         // Collect any remaining or re-read messages
-        List<ConsumerRecordDto> recordsAgain = AsyncTestHelper.pollWithRetry(consumerManager, 15, 20);
+        List<ConsumerRecordDto> recordsAgain = AsyncTestHelper.pollWithRetry(consumerManager, 30, 20); // Увеличено до 30s
         
         // Should have read some messages (either remaining or all if seeked to beginning)
         assertThat(firstRead + recordsAgain.size()).isGreaterThanOrEqualTo(firstRead);

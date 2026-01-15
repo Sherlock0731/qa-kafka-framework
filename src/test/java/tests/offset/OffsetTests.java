@@ -37,16 +37,16 @@ public class OffsetTests extends BaseTest {
         
         // Wait for messages
         try {
-            Thread.sleep(3000); // Increased from 1s to 3s
+            Thread.sleep(5000); // Увеличено до 5s для remote Kafka
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
         
         consumerManager.initConsumer(topic);
-        consumerManager.poll(5); // Initial poll to join group
+        consumerManager.poll(10); // Увеличено до 10s для rebalancing
         
         // Use AsyncTestHelper.pollWithRetry instead of await()
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 15, 1);
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, 1); // Увеличено до 30s
         assertThat(records).isNotEmpty();
         
         // Process messages

@@ -38,16 +38,16 @@ public class IdempotenceTests extends BaseTest {
         producerManager.flush();
         
         try {
-            Thread.sleep(5000); // Wait for messages
+            Thread.sleep(7000); // Увеличено до 7s для remote Kafka
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
         
         consumerManager.initConsumer(topic);
-        consumerManager.poll(10); // Initial poll to join group
+        consumerManager.poll(15); // Увеличено до 15s для rebalancing
         
         // Use AsyncTestHelper.pollWithRetry instead of await()
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 20, messageCount);
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 40, messageCount); // Увеличено до 40s для 100 сообщений
         
         log.info("TC-016: Received {} of {} expected messages", records.size(), messageCount);
         

@@ -123,7 +123,7 @@ public class DlqTests extends BaseTest {
         consumerManager.initConsumer(dlqTopic);
         consumerManager.poll(5); // Increased from 2s to 5s
         
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 15, 1);
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, 1); // Увеличено до 30s для remote Kafka
         assertThat(records.size()).isGreaterThanOrEqualTo(1); // Changed to >= for flexibility
         
         ConsumerRecordDto dlqRecord = records.get(0);
