@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class: tests.consumer.ConsumerTests
+Test Method: testConsumerSessionTimeout
+Display Name: TC-011A: Consumer session timeout and rebalance
+Status: FAILED
+Execution Time: 2026-01-15 04:17:22
+Thread: main
+Tag: consumer
+Tag: critical
