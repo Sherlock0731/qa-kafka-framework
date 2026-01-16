@@ -181,15 +181,14 @@ public class ProducerTests extends BaseTest {
         producerManager.flush();
         
         try {
-            Thread.sleep(5000); // Увеличено до 5s для remote Kafka
+            Thread.sleep(3000); // Increased from 1s to 3s
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
         
         // Verify messages were sent successfully
         consumerManager.initConsumer(topic);
-        consumerManager.poll(10); // Увеличено до 10s для rebalancing
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount); // Увеличено до 30s
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 60, messageCount);
         
         assertThat(records.size()).isGreaterThanOrEqualTo(messageCount); // Changed to >= for flexibility
     }

@@ -69,7 +69,7 @@ public class DlqTests extends BaseTest {
         // Verify message in DLQ - use AsyncTestHelper.pollWithRetry with longer timeout
         consumerManager.initConsumer(dlqTopic);
         
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, 1);
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 60, 1);
         assertThat(records).hasSize(1);
         
         ConsumerRecordDto dlqRecord = records.get(0);
@@ -121,9 +121,8 @@ public class DlqTests extends BaseTest {
         
         // Verify DLQ message has all metadata
         consumerManager.initConsumer(dlqTopic);
-        consumerManager.poll(5); // Increased from 2s to 5s
         
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, 1); // Увеличено до 30s для remote Kafka
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 60, 1);
         assertThat(records.size()).isGreaterThanOrEqualTo(1); // Changed to >= for flexibility
         
         ConsumerRecordDto dlqRecord = records.get(0);
@@ -167,9 +166,8 @@ public class DlqTests extends BaseTest {
         
         // Read from DLQ
         consumerManager.initConsumer(dlqTopic);
-        consumerManager.poll(10); // Увеличено до 10s для rebalancing
         
-        List<ConsumerRecordDto> dlqRecords = AsyncTestHelper.pollWithRetry(consumerManager, 10, 1);
+        List<ConsumerRecordDto> dlqRecords = AsyncTestHelper.pollWithRetry(consumerManager, 60, 1);
         assertThat(dlqRecords).hasSize(1);
         
         ConsumerRecordDto record = dlqRecords.get(0);
@@ -198,9 +196,8 @@ public class DlqTests extends BaseTest {
         // Verify retry message in original topic
         consumerManager.close();
         consumerManager.initConsumer(topic);
-        consumerManager.poll(10); // Увеличено до 10s для rebalancing
         
-        List<ConsumerRecordDto> retryRecords = AsyncTestHelper.pollWithRetry(consumerManager, 10, 1);
+        List<ConsumerRecordDto> retryRecords = AsyncTestHelper.pollWithRetry(consumerManager, 60, 1);
         assertThat(retryRecords).hasSize(1);
         
         ConsumerRecordDto retriedRecord = retryRecords.get(0);

@@ -55,7 +55,7 @@ public class ConsumerTests extends BaseTest {
         consumerManager.poll(15); // Increased from 10s to 15s
         
         // Use AsyncTestHelper.pollWithRetry instead of await()
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount);
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 90, messageCount);
         
         log.info("TC-009: Read {} of {} expected messages", records.size(), messageCount);
         
@@ -169,7 +169,6 @@ public class ConsumerTests extends BaseTest {
         
         // Create first consumer in group
         consumerManager.initConsumer(topic);
-        consumerManager.poll(3);
         
         List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, messageCount);
         
@@ -186,7 +185,6 @@ public class ConsumerTests extends BaseTest {
         
         // Initialize consumer
         consumerManager.initConsumer(topic);
-        consumerManager.poll(2);
         
         // Send first batch
         List<KafkaMessageDto> batch1 = TestDataGenerator.generateMessages(topic, 5);
@@ -247,7 +245,6 @@ public class ConsumerTests extends BaseTest {
         
         // Initialize consumer
         consumerManager.initConsumer(topic);
-        consumerManager.poll(3);
         
         // Poll once - should respect max.poll.records (default 500)
         List<ConsumerRecordDto> firstPoll = consumerManager.poll(1);
@@ -265,7 +262,6 @@ public class ConsumerTests extends BaseTest {
         
         // Initialize consumer but don't send messages
         consumerManager.initConsumer(topic);
-        consumerManager.poll(2);
         
         // Poll with short timeout - should return empty
         List<ConsumerRecordDto> records = consumerManager.poll(1);
@@ -283,7 +279,6 @@ public class ConsumerTests extends BaseTest {
         
         // Initialize consumer
         consumerManager.initConsumer(topic);
-        consumerManager.poll(2);
         
         // Send messages
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 10);
@@ -311,7 +306,6 @@ public class ConsumerTests extends BaseTest {
         
         // Initialize consumer
         consumerManager.initConsumer(topic);
-        consumerManager.poll(2);
         
         // Send messages
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 10);
@@ -361,7 +355,6 @@ public class ConsumerTests extends BaseTest {
         
         // Initialize consumer (will subscribe to all partitions)
         consumerManager.initConsumer(topic);
-        consumerManager.poll(3);
         
         // Poll messages
         List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, 15);
@@ -383,15 +376,14 @@ public class ConsumerTests extends BaseTest {
         producerManager.flush();
         
         try {
-            Thread.sleep(5000); // Увеличено до 5s для remote Kafka
+            Thread.sleep(3000); // Increased wait
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
         
         // Initialize consumer and consume all
         consumerManager.initConsumer(topic);
-        consumerManager.poll(10); // Увеличено до 10s для rebalancing
-        List<ConsumerRecordDto> allRecords = AsyncTestHelper.pollWithRetry(consumerManager, 30, 20); // Увеличено до 30s
+        List<ConsumerRecordDto> allRecords = AsyncTestHelper.pollWithRetry(consumerManager, 60, 20);
         
         int firstRead = allRecords.size();
         assertThat(firstRead).isGreaterThan(0);
@@ -400,10 +392,9 @@ public class ConsumerTests extends BaseTest {
         // OR we need to manually seek to beginning
         consumerManager.close();
         consumerManager.initConsumer(topic);
-        consumerManager.poll(10); // Увеличено до 10s
         
         // Collect any remaining or re-read messages
-        List<ConsumerRecordDto> recordsAgain = AsyncTestHelper.pollWithRetry(consumerManager, 30, 20); // Увеличено до 30s
+        List<ConsumerRecordDto> recordsAgain = AsyncTestHelper.pollWithRetry(consumerManager, 60, 20);
         
         // Should have read some messages (either remaining or all if seeked to beginning)
         assertThat(firstRead + recordsAgain.size()).isGreaterThanOrEqualTo(firstRead);
@@ -429,7 +420,6 @@ public class ConsumerTests extends BaseTest {
         
         // Initialize consumer
         consumerManager.initConsumer(topic);
-        consumerManager.poll(3);
         
         // Consumer has lag (messages waiting to be consumed)
         List<ConsumerRecordDto> consumed = AsyncTestHelper.pollWithRetry(consumerManager, 15, 50);

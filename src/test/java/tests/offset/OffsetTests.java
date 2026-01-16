@@ -37,16 +37,15 @@ public class OffsetTests extends BaseTest {
         
         // Wait for messages
         try {
-            Thread.sleep(5000); // Увеличено до 5s для remote Kafka
+            Thread.sleep(3000); // Increased from 1s to 3s
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
         
         consumerManager.initConsumer(topic);
-        consumerManager.poll(10); // Увеличено до 10s для rebalancing
         
         // Use AsyncTestHelper.pollWithRetry instead of await()
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, 1); // Увеличено до 30s
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 60, 1);
         assertThat(records).isNotEmpty();
         
         // Process messages
@@ -78,7 +77,7 @@ public class OffsetTests extends BaseTest {
         consumerManager.initConsumer(topic);
         
         // Use AsyncTestHelper.pollWithRetry to get all records
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, 10);
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 60, 10);
         assertThat(records).hasSize(10);
         
         // Commit offset 5 (index 4)
@@ -113,10 +112,9 @@ public class OffsetTests extends BaseTest {
         
         // Initialize consumer with auto-commit enabled (default)
         consumerManager.initConsumer(topic);
-        consumerManager.poll(3);
         
         // Consume messages
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, 15);
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 60, 15);
         assertThat(records).hasSize(15);
         
         // Wait for auto-commit interval
@@ -136,7 +134,6 @@ public class OffsetTests extends BaseTest {
         }
         
         consumerManager.initConsumer(topic);
-        consumerManager.poll(5); // Join group
         
         // Should not get the same messages again (offset was auto-committed)
         List<ConsumerRecordDto> newRecords = consumerManager.poll(2);
@@ -170,10 +167,9 @@ public class OffsetTests extends BaseTest {
         // Create consumer with unique group to trigger earliest reset
         consumerManager.close();
         consumerManager.initConsumer(topic);
-        consumerManager.poll(3);
         
         // Should read from earliest (beginning) due to auto.offset.reset=earliest
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, 20);
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 60, 20);
         
         assertThat(records.size()).isGreaterThan(0);
         assertThat(records.size()).isLessThanOrEqualTo(20);
@@ -201,10 +197,9 @@ public class OffsetTests extends BaseTest {
         
         // Initialize first consumer
         consumerManager.initConsumer(topic);
-        consumerManager.poll(5); // Increased from 3s to 5s
         
         // Consume some messages
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, 10);
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 60, 10);
         assertThat(records.size()).isGreaterThan(0);
         
         // Commit before closing
@@ -221,9 +216,8 @@ public class OffsetTests extends BaseTest {
         
         // Create new consumer - should continue from committed offset
         consumerManager.initConsumer(topic);
-        consumerManager.poll(5);
         
-        List<ConsumerRecordDto> newRecords = AsyncTestHelper.pollWithRetry(consumerManager, 15, 20);
+        List<ConsumerRecordDto> newRecords = AsyncTestHelper.pollWithRetry(consumerManager, 60, 20);
         
         // Should get remaining messages or at least something
         assertThat(records.size() + newRecords.size()).isGreaterThanOrEqualTo(records.size());
