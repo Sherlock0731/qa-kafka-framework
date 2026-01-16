@@ -51,9 +51,6 @@ public class ConsumerTests extends BaseTest {
         consumerManager.close(); // Close existing consumer if any
         consumerManager.initConsumer(topic); // Will use unique consumer group per test
         
-        // Longer dummy poll to allow consumer group join to complete (~10s for cloud)
-        consumerManager.poll(15); // Increased from 10s to 15s
-        
         // Use AsyncTestHelper.pollWithRetry instead of await()
         List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 90, messageCount);
         
