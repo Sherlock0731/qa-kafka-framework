@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class: tests.producer.ProducerTests
+Test Method: testProducerTimeout
+Display Name: TC-006A: Producer request timeout
+Status: PASSED
+Execution Time: 2026-01-16 04:38:40
+Thread: main
+Tag: producer
+Tag: critical
