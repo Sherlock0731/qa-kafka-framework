@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class: tests.consumer.ConsumerTests
+Test Method: testReadMessagesWithHeaders
+Display Name: TC-011: Чтение сообщений с headers
+Status: PASSED
+Execution Time: 2026-01-17 04:38:28
+Thread: main
+Tag: consumer
+Tag: critical
