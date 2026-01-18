@@ -48,14 +48,18 @@
 
 ### Тестовая реализация
 
-**Всего тестовых классов: 7**
-- ProducerTests (6 методов)
-- ConsumerTests (3 метода)
-- IdempotenceTests (2 метода)
-- OrderingTests (1 метод)
-- OffsetTests (2 метода)
-- PartitioningTests (2 метода)
-- DlqTests (1 метод)
+**Всего тестов: 66** в 11 классах
+- ProducerTests (12 тестов)
+- ConsumerTests (12 тестов)
+- IdempotenceTests (7 тестов)
+- OrderingTests (3 теста)
+- OffsetTests (5 тестов)
+- PartitioningTests (5 тестов)
+- ConsumerGroupTests (1 тест)
+- DlqTests (3 теста)
+- TransactionsTests (9 тестов)
+- PerformanceTests (4 теста)
+- ErrorHandlingTests (5 тестов)
 
 **Покрытие:**
 - ✅ Producer операции
@@ -64,7 +68,11 @@
 - ✅ Упорядоченность сообщений
 - ✅ Управление offset
 - ✅ Партиционирование
+- ✅ Consumer Groups
 - ✅ Dead Letter Queue
+- ✅ Транзакции
+- ✅ Performance тестирование
+- ✅ Обработка ошибок
 
 ## Структура проекта
 
@@ -92,7 +100,8 @@ qa-kafka-framework/
 │   │   └── logback.xml           # Конфигурация логирования
 │   └── test/java/tests/
 │       ├── BaseTest.java         # Базовый тестовый класс
-│       └── [7 тестовых классов]
+│       ├── listeners/            # Test listeners (3 файла)
+│       └── [11 тестовых классов]
 ├── .dockerignore               # Игнорируемые файлы Docker
 ├── .env.example                # Пример переменных окружения
 ├── .gitignore                  # Git ignore правила
@@ -104,12 +113,12 @@ qa-kafka-framework/
 ```
 
 **Всего файлов:**
-- Java файлы: 19
+- Java файлы: 25+ (включая 11 тестовых классов, 3 listeners)
 - Конфигурационные файлы: 7
-- Файлы документации: 6 (все на русском)
+- Файлы документации: 7 (все на русском)
 - CI/CD файлы: 2
 - Docker файлы: 4
-- Скрипты: 2
+- Скрипты: 3
 
 ## Быстрый старт
 
@@ -121,7 +130,7 @@ export KAFKA_SSL_TRUSTSTORE_PASSWORD=ваш_пароль
 export KAFKA_SSL_KEYSTORE_PASSWORD=ваш_пароль
 
 # Запуск
-mvn clean test                    # Все тесты
+mvn clean test                   # Все тесты
 mvn test -Dgroups=smoke          # Smoke тесты
 ./run-tests.sh --parallel 4      # Параллельно
 
@@ -149,15 +158,19 @@ cp .env.example .env
 
 | Категория | Тег | Тесты | Статус |
 |-----------|-----|-------|--------|
-| Producer | `producer` | 6+ | ✅ Реализовано |
-| Consumer | `consumer` | 3+ | ✅ Реализовано |
-| Идемпотентность | `idempotence` | 2+ | ✅ Реализовано |
-| Упорядоченность | `ordering` | 1+ | ✅ Реализовано |
-| Offset | `offset` | 2+ | ✅ Реализовано |
-| Партиционирование | `partitioning` | 2+ | ✅ Реализовано |
-| DLQ | `dlq` | 1+ | ✅ Реализовано |
-| Smoke | `smoke` | 10+ | ✅ Реализовано |
-| Critical | `critical` | 15+ | ✅ Реализовано |
+| Producer | `producer` | 12 | ✅ Реализовано |
+| Consumer | `consumer` | 12 | ✅ Реализовано |
+| Идемпотентность | `idempotence` | 7 | ✅ Реализовано |
+| Упорядоченность | `ordering` | 3 | ✅ Реализовано |
+| Offset | `offset` | 5 | ✅ Реализовано |
+| Партиционирование | `partitioning` | 5 | ✅ Реализовано |
+| Consumer Groups | `consumer-group` | 1 | ✅ Реализовано |
+| DLQ | `dlq` | 3 | ✅ Реализовано |
+| Транзакции | `transactions` | 9 | ✅ Реализовано |
+| Performance | `performance` | 4 | ✅ Реализовано |
+| Error Handling | `error-handling` | 5 | ✅ Реализовано |
+| Smoke | `smoke` | 13 | ✅ Реализовано |
+| Critical | `critical` | 35 | ✅ Реализовано |
 
 ## Использованные паттерны проектирования
 
@@ -187,10 +200,10 @@ cp .env.example .env
 ## Производительность
 
 ### Время выполнения (примерно)
-- Последовательно: ~30 минут (53 теста)
-- Параллельно (4 потока): ~10 минут
-- Параллельно (8 потоков): ~6 минут
-- Smoke тесты: ~3 минуты
+- Последовательно: ~30 минут (66 тестов)
+- Параллельно (2 потока): ~12 минут
+- Smoke тесты: ~7 минут
+- Critical тесты: ~15 минут
 
 ## Лучшие практики
 
@@ -213,5 +226,5 @@ cp .env.example .env
 **Docker:** ✅ Полная поддержка  
 **Кроссплатформенность:** ✅ Windows, Linux, macOS  
 
-**Версия:** 1.0.0  
-**Дата:** 2026-01-13
+**Версия:** 1.1.0  
+**Дата:** 2026-01-18

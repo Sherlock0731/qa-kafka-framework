@@ -5,16 +5,15 @@
 Всего тест-кейсов: **66**
 - Producer (Продюсер): 12 тестов
 - Consumer (Консьюмер): 12 тестов
-- Idempotence (Идемпотентность): 6 тестов
+- Idempotence (Идемпотентность): 7 тестов
 - Ordering (Порядок): 3 теста
 - Offset Management (Управление офсетами): 5 тестов
 - Error Handling (Обработка ошибок): 5 тестов
-- Partitioning (Партиционирование): 4 теста
+- Partitioning (Партиционирование): 5 тестов
 - Consumer Groups (Группы консьюмеров): 1 тест
 - Dead Letter Queue (Очередь отказов): 3 теста
 - Transactions (Транзакции): 9 тестов
 - Performance (Производительность): 4 теста
-- Compression (Сжатие): 2 теста
 
 ## Тест-кейсы по приоритету
 
@@ -68,7 +67,7 @@
 
 ---
 
-## 3. Idempotence Tests (Тесты идемпотентности) - 6 тестов
+## 3. Idempotence Tests (Тесты идемпотентности) - 7 тестов
 
 | ID | Название | Тип | Приоритет | Теги |
 |----|----------|-----|-----------|------|
@@ -78,6 +77,7 @@
 | TC-024 | Дубликаты при retry | Negative | NORMAL | `idempotence` |
 | TC-025 | Exactly-once доставка сообщений | Positive | BLOCKER | `idempotence`, `smoke`, `critical` |
 | TC-025A | Producer ID и sequence number | Positive | NORMAL | `idempotence` |
+| TC-025B | Транзакционная идемпотентность | Positive | CRITICAL | `idempotence`, `exactly-once` |
 
 **Описание категории:**
 Тесты идемпотентности проверяют механизмы предотвращения дубликатов и гарантии exactly-once семантики.
@@ -127,7 +127,7 @@
 
 ---
 
-## 7. Partitioning Tests (Партиционирование) - 4 теста
+## 7. Partitioning Tests (Партиционирование) - 5 тестов
 
 | ID | Название | Тип | Приоритет | Теги |
 |----|----------|-----|-----------|------|
@@ -259,10 +259,11 @@ Consumer (12)
 ├── Обработка ошибок (2) ✓
 └── Производительность (1) ✓
 
-Idempotence (6)
+Idempotence (7)
 ├── Идемпотентность продюсера (3) ✓
 ├── Обработка дубликатов (2) ✓
-└── Exactly-once (1) ✓
+├── Exactly-once (1) ✓
+└── Транзакционная идемпотентность (1) ✓
 
 Ordering (3)
 ├── Гарантированный порядок (2) ✓
@@ -277,8 +278,8 @@ Error Handling (5)
 ├── Сетевые ошибки (2) ✓
 └── Ошибки доступности (1) ✓
 
-Partitioning (4)
-├── Стратегии распределения (3) ✓
+Partitioning (5)
+├── Стратегии распределения (4) ✓
 └── Граничные случаи (1) ✓
 
 Consumer Groups (1)
@@ -460,14 +461,15 @@ mvn test -Dtest=DlqTests#testSendToDlqAfterRetries
 - `producer`: 12 тестов
 - `consumer`: 12 тестов
 - `transactions`: 9 тестов
-- `idempotence`: 6 тестов
+- `idempotence`: 7 тестов
 - `error-handling`: 10 тестов
 - `offset`: 5 тестов
-- `partitioning`: 4 тестов
+- `partitioning`: 5 тестов
 - `dlq`: 3 тестов
 - `ordering`: 3 тестов
 - `consumer-group`: 2 теста
 - `performance`: 4 теста
+- `exactly-once`: 1 тест
 
 ---
 
@@ -531,7 +533,7 @@ mvn surefire-report:report
 
 ## Версия матрицы
 
-**Версия:** v1  
-**Дата:** 2026-01-14  
+**Версия:** v1.1  
+**Дата:** 2026-01-18  
 **Автор:** **Vitaliy Popravka** - QA Automation Engineer  
 **Статус:** COMPLETE ✅

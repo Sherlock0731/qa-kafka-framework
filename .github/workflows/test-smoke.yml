@@ -158,6 +158,7 @@ jobs:
               -Dkafka.ssl.truststore.location=${{ env.KAFKA_SSL_TRUSTSTORE_LOCATION }} \
               -Dkafka.ssl.keystore.location=${{ env.KAFKA_SSL_KEYSTORE_LOCATION }} \
               -Dkafka.ssl.truststore.password=${{ secrets.KAFKA_SSL_TRUSTSTORE_PASSWORD }} \
+              -Dkafka.ssl.key.password=${{ secrets.KAFKA_SSL_KEYSTORE_PASSWORD }} \
               -Dkafka.ssl.keystore.password=${{ secrets.KAFKA_SSL_KEYSTORE_PASSWORD }} \
               -Dallure.results.directory=target/allure-results
           fi
