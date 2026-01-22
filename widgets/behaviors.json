@@ -1,1 +1,1 @@
-{"total":11,"items":[{"uid":"dd0c9376ee03cb91f77fdb38490452a8","name":"Kafka Testing","statistic":{"failed":0,"broken":0,"skipped":0,"passed":8,"unknown":0,"total":8}}]}
+{"total":11,"items":[{"uid":"dd0c9376ee03cb91f77fdb38490452a8","name":"Kafka Testing","statistic":{"failed":1,"broken":0,"skipped":0,"passed":7,"unknown":0,"total":8}}]}
