@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class: tests.producer.ProducerTests
+Test Method: testSendOversizedMessage
+Display Name: TC-006: Отправка сообщения размером больше max.message.bytes
+Status: PASSED
+Execution Time: 2026-01-24 04:35:11
+Thread: main
+Tag: producer
+Tag: critical
