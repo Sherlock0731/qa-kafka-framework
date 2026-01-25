@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class: tests.idempotence.IdempotenceTests
+Test Method: testDuplicateDetectionByMessageId
+Display Name: TC-017: Обработка дубликатов через уникальный message ID
+Status: PASSED
+Execution Time: 2026-01-25 05:07:04
+Thread: main
+Tag: idempotence
+Tag: critical

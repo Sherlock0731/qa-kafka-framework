@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class: tests.producer.ProducerTests
+Test Method: testSendBatchMessages
+Display Name: TC-002: Массовая отправка сообщений (batch)
+Status: PASSED
+Execution Time: 2026-01-25 04:51:59
+Thread: main
+Tag: producer
+Tag: critical
