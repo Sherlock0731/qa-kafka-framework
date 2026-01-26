@@ -307,4 +307,31 @@ public interface KafkaConfig extends Config {
     @Key("test.cleanup.topics")
     @DefaultValue("true")
     Boolean cleanupTopics();
+    
+    // ==================== Aiven API Configuration ====================
+    
+    /**
+     * Aiven API base URL
+     */
+    @Key("aiven.api.url")
+    @DefaultValue("https://api.aiven.io/v1")
+    String aivenApiUrl();
+    
+    /**
+     * Aiven API authentication token
+     */
+    @Key("aiven.api.token")
+    String aivenApiToken();
+    
+    /**
+     * Aiven project name
+     */
+    @Key("aiven.project.name")
+    String aivenProjectName();
+    
+    /**
+     * Aiven Kafka service name
+     */
+    @Key("aiven.service.name")
+    String aivenServiceName();
 }

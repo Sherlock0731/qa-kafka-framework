@@ -129,6 +129,9 @@ jobs:
           KAFKA_SSL_KEYSTORE_PASSWORD: ${{ secrets.KAFKA_SSL_KEYSTORE_PASSWORD }}
           KAFKA_REST_API_PASSWORD: ${{ secrets.KAFKA_REST_API_PASSWORD }}
           KAFKA_SCHEMA_REGISTRY_PASSWORD: ${{ secrets.KAFKA_SCHEMA_REGISTRY_PASSWORD }}
+          AIVEN_API_TOKEN: ${{ secrets.AIVEN_API_TOKEN }}
+          AIVEN_PROJECT_NAME: ${{ secrets.AIVEN_PROJECT_NAME }}
+          AIVEN_SERVICE_NAME: ${{ secrets.AIVEN_SERVICE_NAME }}
         run: |
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "   Smoke Test Configuration"

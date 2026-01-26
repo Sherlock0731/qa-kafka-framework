@@ -211,9 +211,48 @@ mvn test -Pparallel-strict -Dthread.count=4
 kafka.ssl.truststore.location=C:\\kafka_key\\kafka.truststore.jks
 kafka.ssl.keystore.location=C:\\kafka_key\\kafka.keystore.p12
 ```
+# Aiven API Configuration (для автоматической очистки топиков)
+aiven.api.token=ваш_токен_aiven
+aiven.project.name=ваш_проект
+aiven.service.name=ваш_сервис
 
 ### CI/CD окружение
 Отредактируйте `src/main/resources/config/ci.properties` или используйте переменные окружения в GitHub Actions.
+
+### Автоматическая очистка топиков через Aiven API
+
+Фреймворк поддерживает автоматическую очистку тестовых топиков после завершения всех тестов через Aiven REST API:
+
+**Как это работает:**
+1. После каждого теста - стандартная очистка через Kafka Admin API
+2. После всех тестов - глобальная очистка через Aiven REST API (удаляет все топики с префиксом `qa-test`)
+
+**Необходимая конфигурация:**
+
+```properties
+# В local.properties или через переменные окружения
+aiven.api.token=ваш_токен_aiven
+aiven.project.name=название_вашего_проекта
+aiven.service.name=название_вашего_kafka_сервиса
+test.cleanup.topics=true
+```
+
+**Переменные окружения для CI/CD:**
+```bash
+export AIVEN_API_TOKEN=your_token
+export AIVEN_PROJECT_NAME=your_project
+export AIVEN_SERVICE_NAME=your_service
+```
+
+**Получение токена Aiven:**
+1. Войдите в Aiven Console: https://console.aiven.io/
+2. Перейдите в User Information → Authentication → Generate token
+3. Скопируйте токен и сохраните в конфигурацию
+
+**Отключение автоматической очистки:**
+```properties
+test.cleanup.topics=false
+```
 
 ## Отчеты Allure
 
