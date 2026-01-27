@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class: tests.consumer.ConsumerTests
+Test Method: testConsumerPauseResume
+Display Name: TC-013: Consumer pause and resume
+Status: PASSED
+Execution Time: 2026-01-27 05:45:21
+Thread: main
+Tag: consumer
+Tag: critical
