@@ -1,0 +1,11 @@
+=== Test Execution Info ===
+
+Test Class: tests.offset.OffsetTests
+Test Method: testOffsetCommitOnRebalance
+Display Name: TC-019A: Offset commit during rebalance
+Status: PASSED
+Execution Time: 2026-01-28 05:00:12
+Thread: main
+Tag: offset
+Tag: consumer-group
+Tag: critical
