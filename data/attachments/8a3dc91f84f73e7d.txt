@@ -1,0 +1,9 @@
+=== Test Execution Info ===
+
+Test Class: tests.errorhandling.ErrorHandlingTests
+Test Method: testBrokerUnavailable
+Display Name: TC-029C: Handle broker unavailable
+Status: PASSED
+Execution Time: 2026-01-31 05:04:29
+Thread: main
+Tag: error-handling
