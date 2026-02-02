@@ -59,13 +59,6 @@ public class DlqTests extends BaseTest {
         producerManager.sendSync(dlqMessage);
         producerManager.flush();
         
-        // Wait for message to be available
-        try {
-            Thread.sleep(1000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        
         // Verify message in DLQ - use AsyncTestHelper.pollWithRetry with longer timeout
         consumerManager.initConsumer(dlqTopic);
         
@@ -85,13 +78,7 @@ public class DlqTests extends BaseTest {
     void testDlqRoutingLogic() {
         String topic = createTestTopic();
         String dlqTopic = topic + "-dlq";
-        createAndTrackTopic(dlqTopic, 1, (short) 1); // Track DLQ topic for cleanup
-        
-        try {
-            Thread.sleep(2000); // Wait for DLQ topic creation
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        createAndTrackTopic(dlqTopic, 1, (short) 1); // Track DLQ topic for cleanupAsyncTestHelper.waitFor(2); // Wait for DLQ topic creation
         
         // Create failed message with metadata
         KafkaMessageDto failedMessage = KafkaMessageDto.builder()
@@ -112,12 +99,7 @@ public class DlqTests extends BaseTest {
         failedMessage.setTopic(dlqTopic);
         producerManager.sendSync(failedMessage);
         producerManager.flush();
-        
-        try {
-            Thread.sleep(3000); // Increased from 1s to 3s
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        AsyncTestHelper.waitFor(3); // Increased from 1s to 3s
         
         // Verify DLQ message has all metadata
         consumerManager.initConsumer(dlqTopic);
@@ -156,13 +138,7 @@ public class DlqTests extends BaseTest {
         dlqMessage.addHeader("retry-count", "2");
         
         producerManager.sendSync(dlqMessage);
-        producerManager.flush();
-        
-        try {
-            Thread.sleep(1000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        producerManager.flush();AsyncTestHelper.waitFor(1);
         
         // Read from DLQ
         consumerManager.initConsumer(dlqTopic);
@@ -186,12 +162,7 @@ public class DlqTests extends BaseTest {
         
         producerManager.sendSync(retryMessage);
         producerManager.flush();
-        
-        try {
-            Thread.sleep(1000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        AsyncTestHelper.waitFor(1);
         
         // Verify retry message in original topic
         consumerManager.close();

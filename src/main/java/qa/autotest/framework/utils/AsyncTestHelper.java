@@ -19,41 +19,41 @@ import static org.awaitility.Awaitility.await;
  */
 @Slf4j
 public class AsyncTestHelper {
-    
+
     /**
      * Poll messages from Kafka consumer with retry logic
      * This method keeps the consumer in the same thread to avoid ThreadLocal issues
-     * 
-     * @param consumer Kafka consumer manager
-     * @param timeoutSeconds Maximum time to wait
+     *
+     * @param consumer            Kafka consumer manager
+     * @param timeoutSeconds      Maximum time to wait
      * @param expectedMinMessages Minimum expected messages
      * @return List of consumed records
      */
     public static List<ConsumerRecordDto> pollWithRetry(
-            KafkaConsumerManager consumer, 
+            KafkaConsumerManager consumer,
             int timeoutSeconds,
             int expectedMinMessages) {
-        
+
         log.debug("Polling with retry: timeout={}s, expectedMin={}", timeoutSeconds, expectedMinMessages);
-        
+
         List<ConsumerRecordDto> allRecords = new ArrayList<>();
         long startTime = System.currentTimeMillis();
         long timeoutMillis = timeoutSeconds * 1000L;
-        
+
         while (System.currentTimeMillis() - startTime < timeoutMillis) {
             List<ConsumerRecordDto> records = consumer.poll(10); // Увеличено до 10s для remote Kafka
-            
+
             if (!records.isEmpty()) {
                 allRecords.addAll(records);
                 log.debug("Polled {} records, total: {}", records.size(), allRecords.size());
-                
+
                 if (allRecords.size() >= expectedMinMessages) {
-                    log.info("Successfully polled {} records (expected min: {})", 
+                    log.info("Successfully polled {} records (expected min: {})",
                             allRecords.size(), expectedMinMessages);
                     return allRecords;
                 }
             }
-            
+
             // Small sleep between polls - увеличено для remote Kafka
             try {
                 Thread.sleep(2000); // Увеличено до 2s
@@ -62,26 +62,26 @@ public class AsyncTestHelper {
                 throw new RuntimeException("Interrupted while polling", e);
             }
         }
-        
-        log.warn("Timeout reached. Polled {} records, expected min: {}", 
+
+        log.warn("Timeout reached. Polled {} records, expected min: {}",
                 allRecords.size(), expectedMinMessages);
         return allRecords;
     }
-    
+
     /**
      * Poll all available messages from Kafka consumer with retry logic
-     * 
-     * @param consumer Kafka consumer manager
+     *
+     * @param consumer       Kafka consumer manager
      * @param timeoutSeconds Maximum time to wait
      * @return List of all consumed records
      */
     public static List<ConsumerRecordDto> pollAllWithRetry(
             KafkaConsumerManager consumer,
             int timeoutSeconds) {
-        
+
         return pollWithRetry(consumer, timeoutSeconds, 1);
     }
-    
+
     /**
      * Waits until condition is met
      */
@@ -96,7 +96,7 @@ public class AsyncTestHelper {
             throw e;
         }
     }
-    
+
     /**
      * Waits until boolean condition is true
      */
@@ -111,5 +111,33 @@ public class AsyncTestHelper {
             log.error("Condition not met after {} seconds: {}", timeoutSeconds, description);
             throw new RuntimeException("Condition not met: " + description, e);
         }
+    }
+
+    /**
+     * Wait for specified number of seconds using Awaitility
+     * This is a replacement for Thread.sleep() with better testability
+     *
+     * @param seconds Number of seconds to wait
+     */
+    public static void waitFor(int seconds) {
+        log.debug("Waiting for {} seconds", seconds);
+        await()
+                .pollDelay(Duration.ofSeconds(seconds))
+                .atMost(Duration.ofSeconds(seconds + 1))
+                .until(() -> true);
+    }
+
+    /**
+     * Wait for specified number of milliseconds using Awaitility
+     * This is a replacement for Thread.sleep() with better testability
+     *
+     * @param milliseconds Number of milliseconds to wait
+     */
+    public static void waitForMillis(long milliseconds) {
+        log.debug("Waiting for {} milliseconds", milliseconds);
+        await()
+                .pollDelay(Duration.ofMillis(milliseconds))
+                .atMost(Duration.ofMillis(milliseconds + 100))
+                .until(() -> true);
     }
 }

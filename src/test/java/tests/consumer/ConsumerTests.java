@@ -39,13 +39,6 @@ public class ConsumerTests extends BaseTest {
         producerManager.sendBatch(messages);
         producerManager.flush();
         
-        // Wait for messages to be committed
-        try {
-            Thread.sleep(10000); // Increased from 5s to 10s - extreme wait for cloud
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        
         // Create consumer with unique group ID to ensure reading from beginning
         // (earliest offset reset only applies when no committed offset exists)
         consumerManager.close(); // Close existing consumer if any
@@ -79,13 +72,6 @@ public class ConsumerTests extends BaseTest {
         producerManager.sendBatch(oldMessages);
         producerManager.flush();
         
-        // Wait for old messages to be written
-        try {
-            Thread.sleep(3000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        
         // Poll to consume the old messages (consumer should get them since it's already subscribed)
         List<ConsumerRecordDto> oldRecords = consumerManager.poll(5);
         
@@ -94,14 +80,7 @@ public class ConsumerTests extends BaseTest {
         // Now send NEW message
         KafkaMessageDto newMessage = TestDataGenerator.generateMessage(topic);
         producerManager.sendSync(newMessage);
-        
-        // Wait for new message
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        
+
         // Should only get the new message
         List<ConsumerRecordDto> newRecords = AsyncTestHelper.pollWithRetry(consumerManager, 10, 1);
         
@@ -130,12 +109,7 @@ public class ConsumerTests extends BaseTest {
         
         producerManager.sendSync(message);
         
-        // Wait for message to be written to Kafka
-        try {
-            Thread.sleep(1000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        // Wait for message to be written to KafkaAsyncTestHelper.waitFor(1);
         
         // Use AsyncTestHelper.pollWithRetry
         List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, 1);
@@ -157,12 +131,7 @@ public class ConsumerTests extends BaseTest {
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, messageCount);
         producerManager.sendBatch(messages);
         producerManager.flush();
-        
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        AsyncTestHelper.waitFor(2);
         
         // Create first consumer in group
         consumerManager.initConsumer(topic);
@@ -187,12 +156,7 @@ public class ConsumerTests extends BaseTest {
         List<KafkaMessageDto> batch1 = TestDataGenerator.generateMessages(topic, 5);
         producerManager.sendBatch(batch1);
         producerManager.flush();
-        
-        try {
-            Thread.sleep(2000); // Wait longer for messages
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        AsyncTestHelper.waitFor(2); // Wait longer for messages
         
         // Consume first batch
         List<ConsumerRecordDto> records1 = AsyncTestHelper.pollWithRetry(consumerManager, 10, 5);
@@ -205,12 +169,7 @@ public class ConsumerTests extends BaseTest {
         List<KafkaMessageDto> batch2 = TestDataGenerator.generateMessages(topic, 5);
         producerManager.sendBatch(batch2);
         producerManager.flush();
-        
-        try {
-            Thread.sleep(1000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        AsyncTestHelper.waitFor(1);
         
         // Resume and consume
         // consumerManager.resume();
@@ -233,12 +192,7 @@ public class ConsumerTests extends BaseTest {
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, totalMessages);
         producerManager.sendBatch(messages);
         producerManager.flush();
-        
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        AsyncTestHelper.waitFor(2);
         
         // Initialize consumer
         consumerManager.initConsumer(topic);
@@ -282,13 +236,6 @@ public class ConsumerTests extends BaseTest {
         producerManager.sendBatch(messages);
         producerManager.flush();
         
-        // Simulate long processing (but less than session timeout)
-        try {
-            Thread.sleep(3000); // 3 seconds
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        
         // Should still be able to poll
         List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, 10);
         assertThat(records.size()).isGreaterThan(0);
@@ -307,25 +254,14 @@ public class ConsumerTests extends BaseTest {
         // Send messages
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 10);
         producerManager.sendBatch(messages);
-        producerManager.flush();
-        
-        try {
-            Thread.sleep(2000); // Wait for messages to be available
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        producerManager.flush();AsyncTestHelper.waitFor(2); // Wait for messages to be available
         
         // Poll multiple times - heartbeats should be sent automatically
         // Collect all messages
         int totalMessages = 0;
         for (int i = 0; i < 5; i++) {
             List<ConsumerRecordDto> batch = consumerManager.poll(2);
-            totalMessages += batch.size();
-            try {
-                Thread.sleep(500);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+            totalMessages += batch.size();AsyncTestHelper.waitForMillis(500);
         }
         
         // Should have received messages (consumer is still in group and receiving heartbeats)
@@ -343,12 +279,7 @@ public class ConsumerTests extends BaseTest {
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 15);
         producerManager.sendBatch(messages);
         producerManager.flush();
-        
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        AsyncTestHelper.waitFor(2);
         
         // Initialize consumer (will subscribe to all partitions)
         consumerManager.initConsumer(topic);
@@ -371,12 +302,7 @@ public class ConsumerTests extends BaseTest {
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 20);
         producerManager.sendBatch(messages);
         producerManager.flush();
-        
-        try {
-            Thread.sleep(3000); // Increased wait
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        AsyncTestHelper.waitFor(3); // Increased wait
         
         // Initialize consumer and consume all
         consumerManager.initConsumer(topic);
@@ -408,12 +334,7 @@ public class ConsumerTests extends BaseTest {
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 50);
         producerManager.sendBatch(messages);
         producerManager.flush();
-        
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        AsyncTestHelper.waitFor(2);
         
         // Initialize consumer
         consumerManager.initConsumer(topic);

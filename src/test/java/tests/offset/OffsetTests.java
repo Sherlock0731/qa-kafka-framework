@@ -35,13 +35,6 @@ public class OffsetTests extends BaseTest {
         producerManager.sendBatch(messages);
         producerManager.flush();
         
-        // Wait for messages
-        try {
-            Thread.sleep(3000); // Increased from 1s to 3s
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        
         consumerManager.initConsumer(topic);
         
         // Use AsyncTestHelper.pollWithRetry instead of await()
@@ -66,13 +59,6 @@ public class OffsetTests extends BaseTest {
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 10);
         producerManager.sendBatch(messages);
         producerManager.flush();
-        
-        // Wait for messages
-        try {
-            Thread.sleep(1000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
         
         consumerManager.initConsumer(topic);
         
@@ -103,12 +89,7 @@ public class OffsetTests extends BaseTest {
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 15);
         producerManager.sendBatch(messages);
         producerManager.flush();
-        
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        AsyncTestHelper.waitFor(2);
         
         // Initialize consumer with auto-commit enabled (default)
         consumerManager.initConsumer(topic);
@@ -117,21 +98,9 @@ public class OffsetTests extends BaseTest {
         List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 60, 15);
         assertThat(records).hasSize(15);
         
-        // Wait for auto-commit interval
-        try {
-            Thread.sleep(6000); // Auto-commit interval is 5000ms
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        
         // Close and reopen consumer - should start after committed offset
         consumerManager.close();
-        
-        try {
-            Thread.sleep(2000); // Wait for graceful close
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        AsyncTestHelper.waitFor(2); // Wait for graceful close
         
         consumerManager.initConsumer(topic);
         
@@ -157,12 +126,7 @@ public class OffsetTests extends BaseTest {
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 20);
         producerManager.sendBatch(messages);
         producerManager.flush();
-        
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        AsyncTestHelper.waitFor(2);
         
         // Create consumer with unique group to trigger earliest reset
         consumerManager.close();
@@ -188,12 +152,7 @@ public class OffsetTests extends BaseTest {
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 30);
         producerManager.sendBatch(messages);
         producerManager.flush();
-        
-        try {
-            Thread.sleep(3000); // Increased from 2s to 3s
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        AsyncTestHelper.waitFor(3); // Increased from 2s to 3s
         
         // Initialize first consumer
         consumerManager.initConsumer(topic);
@@ -207,12 +166,7 @@ public class OffsetTests extends BaseTest {
         
         // Close consumer - should trigger rebalance
         consumerManager.close();
-        
-        try {
-            Thread.sleep(2000); // Wait for rebalance to complete
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        AsyncTestHelper.waitFor(2); // Wait for rebalance to complete
         
         // Create new consumer - should continue from committed offset
         consumerManager.initConsumer(topic);

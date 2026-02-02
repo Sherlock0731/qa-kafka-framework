@@ -47,12 +47,7 @@ public class TransactionsTests extends BaseTest {
         // Send as transaction (if transactional producer configured)
         producerManager.sendBatch(messages);
         producerManager.flush();
-        
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        AsyncTestHelper.waitFor(2);
         
         // Consume with read_committed isolation
         consumerManager.initConsumer(topic);
@@ -81,13 +76,7 @@ public class TransactionsTests extends BaseTest {
         }
         
         producerManager.sendBatch(txn1Messages);
-        producerManager.flush(); // Commit
-        
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        producerManager.flush(); // CommitAsyncTestHelper.waitFor(2);
         
         // Consume committed messages
         consumerManager.initConsumer(topic);
@@ -118,24 +107,14 @@ public class TransactionsTests extends BaseTest {
         for (KafkaMessageDto msg : messages) {
             msg.addHeader("transaction", "txn-rollback");
             msg.addHeader("should-rollback", "true");
-        }
-        
-        try {
-            producerManager.sendBatch(messages);
+        }producerManager.sendBatch(messages);
             // Don't flush - simulate rollback
             
             // In real transactional producer:
             // producer.abortTransaction();
             
-        } catch (Exception e) {
-            log.info("Transaction failed as expected: {}", e.getMessage());
-        }
-        
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+
+            AsyncTestHelper.waitFor(2);
         
         // Try to consume - may or may not get messages depending on rollback
         consumerManager.initConsumer(topic);
@@ -166,14 +145,8 @@ public class TransactionsTests extends BaseTest {
         }
         
         producerManager.sendBatch(committedMessages);
-        producerManager.flush(); // Ensure committed
-        
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        
+        producerManager.flush(); // Ensure committedAsyncTestHelper.waitFor(2);
+
         // Consumer with read_committed isolation (default in our setup)
         consumerManager.initConsumer(topic);
         consumerManager.poll(3);
@@ -212,12 +185,7 @@ public class TransactionsTests extends BaseTest {
         
         producerManager.sendBatch(messages);
         producerManager.flush();
-        
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        AsyncTestHelper.waitFor(2);
         
         // Consume with exactly-once processing
         consumerManager.initConsumer(topic);
@@ -267,13 +235,7 @@ public class TransactionsTests extends BaseTest {
         // Send to both topics in same transaction
         producerManager.sendBatch(messages1);
         producerManager.sendBatch(messages2);
-        producerManager.flush(); // Commit transaction
-        
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        producerManager.flush(); // Commit transactionAsyncTestHelper.waitFor(2);
         
         // Verify messages in topic1
         consumerManager.initConsumer(topic1);
@@ -311,21 +273,9 @@ public class TransactionsTests extends BaseTest {
         // Send messages
         producerManager.sendBatch(messages);
         
-        // Simulate delay (but less than transaction timeout)
-        try {
-            Thread.sleep(3000); // 3 seconds
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        
         // Commit transaction
         producerManager.flush();
-        
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        AsyncTestHelper.waitFor(2);
         
         // Verify messages committed before timeout
         consumerManager.initConsumer(topic);
@@ -353,12 +303,7 @@ public class TransactionsTests extends BaseTest {
         List<KafkaMessageDto> inputMessages = TestDataGenerator.generateMessages(inputTopic, messageCount);
         producerManager.sendBatch(inputMessages);
         producerManager.flush();
-        
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        AsyncTestHelper.waitFor(2);
         
         // Consume from input, transform, and send to output in transaction
         consumerManager.initConsumer(inputTopic);
@@ -379,13 +324,7 @@ public class TransactionsTests extends BaseTest {
         }
         
         producerManager.sendBatch(outputMessages);
-        producerManager.flush(); // Commit
-        
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        producerManager.flush(); // CommitAsyncTestHelper.waitFor(2);
         
         // Verify processed messages in output topic
         consumerManager.close();
@@ -414,20 +353,10 @@ public class TransactionsTests extends BaseTest {
         List<KafkaMessageDto> failedTxnMessages = TestDataGenerator.generateMessages(topic, 5);
         for (KafkaMessageDto msg : failedTxnMessages) {
             msg.addHeader("transaction", "txn-failed");
-        }
-        
-        try {
-            producerManager.sendBatch(failedTxnMessages);
+        }producerManager.sendBatch(failedTxnMessages);
             // Simulate failure - don't flush/commit
-        } catch (Exception e) {
-            log.info("First transaction failed as expected");
-        }
-        
-        try {
-            Thread.sleep(1000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+
+            AsyncTestHelper.waitFor(1);
         
         // Transaction 2: Should succeed after recovery
         List<KafkaMessageDto> recoveredTxnMessages = TestDataGenerator.generateMessages(topic, 5);
@@ -436,13 +365,7 @@ public class TransactionsTests extends BaseTest {
         }
         
         producerManager.sendBatch(recoveredTxnMessages);
-        producerManager.flush(); // Commit
-        
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        producerManager.flush(); // CommitAsyncTestHelper.waitFor(2);
         
         // Verify only recovered transaction messages
         consumerManager.initConsumer(topic);

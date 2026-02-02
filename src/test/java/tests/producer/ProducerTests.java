@@ -97,13 +97,7 @@ public class ProducerTests extends BaseTest {
         List<ConsumerRecordDto> records = new ArrayList<>();
         for (int i = 0; i < 10 && records.isEmpty(); i++) {
             records = consumerManager.poll(2);
-            if (records.isEmpty()) {
-                try {
-                    Thread.sleep(500);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new RuntimeException("Interrupted while waiting for messages", e);
-                }
+            if (records.isEmpty()) {AsyncTestHelper.waitForMillis(500);
             }
         }
         
@@ -149,16 +143,9 @@ public class ProducerTests extends BaseTest {
         
         KafkaMessageDto message = TestDataGenerator.generateMessage(topic);
         message.setValue(largeValue.toString());
-        
-        try {
-            producerManager.sendSync(message);
+        producerManager.sendSync(message);
             // If we reach here, the broker accepted it (might have higher limit)
             log.warn("Large message was accepted by broker");
-        } catch (Exception e) {
-            // Expected: message too large
-            assertThat(e.getMessage()).containsIgnoringCase("message");
-            log.info("Large message rejected as expected: {}", e.getMessage());
-        }
     }
 
     @Test
@@ -179,12 +166,8 @@ public class ProducerTests extends BaseTest {
         
         producerManager.sendBatch(messages);
         producerManager.flush();
-        
-        try {
-            Thread.sleep(3000); // Increased from 1s to 3s
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+
+        AsyncTestHelper.waitFor(3); // Increased from 1s to 3s
         
         // Verify messages were sent successfully
         consumerManager.initConsumer(topic);
@@ -213,13 +196,6 @@ public class ProducerTests extends BaseTest {
         long duration = endTime - startTime;
         log.info("Send with acks=all took {} ms", duration);
         
-        // Verify messages were persisted
-        try {
-            Thread.sleep(1000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        
         consumerManager.initConsumer(topic);
         consumerManager.poll(3);
         List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, 10);
@@ -239,14 +215,8 @@ public class ProducerTests extends BaseTest {
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, messageCount);
         
         int successCount = 0;
-        for (KafkaMessageDto message : messages) {
-            try {
-                producerManager.sendSync(message);
+        for (KafkaMessageDto message : messages) {producerManager.sendSync(message);
                 successCount++;
-            } catch (Exception e) {
-                // Some might fail, but retry mechanism should minimize failures
-                log.warn("Message send failed after retries: {}", e.getMessage());
-            }
         }
         
         // Most messages should succeed even with potential transient errors
@@ -262,18 +232,13 @@ public class ProducerTests extends BaseTest {
         
         // Send message with configured timeout
         KafkaMessageDto message = TestDataGenerator.generateMessage(topic);
-        
-        try {
+
             long startTime = System.currentTimeMillis();
             producerManager.sendSync(message);
             long duration = System.currentTimeMillis() - startTime;
             
             // Should complete within reasonable time
             assertThat(duration).isLessThan(30000); // 30 seconds max
-        } catch (org.apache.kafka.common.errors.TimeoutException e) {
-            // Timeout is acceptable - just verify it's handled properly
-            assertThat(e.getMessage()).containsIgnoringCase("timeout");
-        }
     }
 
     @Test
@@ -289,13 +254,9 @@ public class ProducerTests extends BaseTest {
         
         int sentCount = 0;
         for (KafkaMessageDto message : messages) {
-            try {
+
                 producerManager.sendAsync(message);
                 sentCount++;
-            } catch (Exception e) {
-                // Buffer full or timeout is acceptable
-                log.debug("Send failed (buffer full?): {}", e.getMessage());
-            }
         }
         
         // Flush remaining
@@ -316,14 +277,13 @@ public class ProducerTests extends BaseTest {
         // If not configured, it will work like normal send
         
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 10);
-        
-        try {
+
             // Send as a transaction (if supported)
             producerManager.sendBatch(messages);
             producerManager.flush();
             
             // Verify all messages committed
-            Thread.sleep(1000);
+            AsyncTestHelper.waitFor(1);
             
             consumerManager.initConsumer(topic);
             consumerManager.poll(3);
@@ -331,9 +291,6 @@ public class ProducerTests extends BaseTest {
             
             // Should get all or none (transactional guarantee)
             assertThat(records.size()).isIn(0, 10);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
     }
 
     @Test

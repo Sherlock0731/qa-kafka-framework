@@ -39,12 +39,7 @@ public class ConsumerGroupTests extends BaseTest {
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, messageCount);
         producerManager.sendBatch(messages);
         producerManager.flush();
-        
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        AsyncTestHelper.waitFor(2);
         
         // Initialize first consumer (will get all partitions)
         consumerManager.initConsumer(topic);

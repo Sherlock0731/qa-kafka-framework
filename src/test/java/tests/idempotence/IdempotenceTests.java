@@ -36,12 +36,8 @@ public class IdempotenceTests extends BaseTest {
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, messageCount);
         producerManager.sendBatch(messages);
         producerManager.flush();
-        
-        try {
-            Thread.sleep(5000); // Wait for messages
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        AsyncTestHelper.waitFor(5);
+         // Wait for messages
         
         consumerManager.initConsumer(topic);
         
@@ -77,13 +73,6 @@ public class IdempotenceTests extends BaseTest {
         producerManager.sendSync(message);
         producerManager.flush();
         
-        // Wait for messages to be available
-        try {
-            Thread.sleep(1000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        
         consumerManager.initConsumer(topic);
         
         // Use AsyncTestHelper.pollWithRetry with longer timeout
@@ -117,12 +106,7 @@ public class IdempotenceTests extends BaseTest {
         // Send all messages
         producerManager.sendBatch(messages);
         producerManager.flush();
-        
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        AsyncTestHelper.waitFor(2);
         
         // Consume and check for duplicates
         consumerManager.initConsumer(topic);
@@ -162,19 +146,8 @@ public class IdempotenceTests extends BaseTest {
             
             producerManager.sendBatch(messages);
             producerManager.flush();
-            
-            try {
-                Thread.sleep(500);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
-        
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+            AsyncTestHelper.waitForMillis(500);
+        }AsyncTestHelper.waitFor(2);
         
         // Consume all messages
         consumerManager.initConsumer(topic);
@@ -214,12 +187,7 @@ public class IdempotenceTests extends BaseTest {
         // Send batch
         producerManager.sendBatch(messages);
         producerManager.flush();
-        
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        AsyncTestHelper.waitFor(2);
         
         // Consume and verify no duplicates
         consumerManager.initConsumer(topic);
@@ -256,23 +224,12 @@ public class IdempotenceTests extends BaseTest {
             String uniqueId = "retry-msg-" + i;
             message.addHeader("unique-id", uniqueId);
             sentMessageIds.add(uniqueId);
-            
-            try {
-                producerManager.sendSync(message);
-            } catch (Exception e) {
-                // Retry on failure
-                log.warn("Retrying message {}", uniqueId);
-                producerManager.sendSync(message);
-            }
+            producerManager.sendSync(message);
         }
         
         producerManager.flush();
-        
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+
+        AsyncTestHelper.waitFor(2);
         
         // Consume all messages
         consumerManager.initConsumer(topic);
@@ -320,12 +277,7 @@ public class IdempotenceTests extends BaseTest {
         // Send in order
         producerManager.sendBatch(messages);
         producerManager.flush();
-        
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        AsyncTestHelper.waitFor(2);
         
         // Consume and verify order
         consumerManager.initConsumer(topic);

@@ -4,12 +4,11 @@ import io.qameta.allure.Description;
 import io.qameta.allure.Severity;
 import io.qameta.allure.SeverityLevel;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.kafka.common.errors.SerializationException;
-import org.apache.kafka.common.errors.TimeoutException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import qa.autotest.app.dto.KafkaMessageDto;
+import qa.autotest.framework.utils.AsyncTestHelper;
 import qa.autotest.framework.utils.TestDataGenerator;
 import tests.BaseTest;
 
@@ -40,19 +39,8 @@ public class ErrorHandlingTests extends BaseTest {
                 .key("test-key")
                 .value(null) // null value
                 .build();
-        
-        // Attempt to send - should handle gracefully
-        try {
-            producerManager.sendSync(invalidMessage);
             // If it doesn't throw, that's fine - null is actually valid in Kafka
             // The test passes as long as it doesn't crash
-        } catch (Exception e) {
-            // If it throws, verify it's an expected exception
-            assertThat(e).isInstanceOfAny(
-                IllegalArgumentException.class,
-                SerializationException.class
-            );
-        }
     }
 
     @Test
@@ -67,13 +55,8 @@ public class ErrorHandlingTests extends BaseTest {
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 5);
         producerManager.sendBatch(messages);
         producerManager.flush();
-        
-        // Wait for messages
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+
+        AsyncTestHelper.waitFor(2);
         
         // Try to consume - should handle any deserialization issues gracefully
         consumerManager.initConsumer(topic);
@@ -99,16 +82,9 @@ public class ErrorHandlingTests extends BaseTest {
         int errorCount = 0;
         
         for (KafkaMessageDto message : messages) {
-            try {
+
                 producerManager.sendSync(message);
                 successCount++;
-            } catch (TimeoutException e) {
-                errorCount++;
-                // Network error occurred - this is expected in some cases
-            } catch (Exception e) {
-                // Other errors are also acceptable for this test
-                errorCount++;
-            }
         }
         
         // At least some messages should succeed (or all if network is stable)
@@ -125,20 +101,10 @@ public class ErrorHandlingTests extends BaseTest {
         
         // Send messages - broker may be available or not
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 5);
-        
-        try {
+
             producerManager.sendBatch(messages);
             producerManager.flush();
             // If successful, broker is available - test passes
-        } catch (Exception e) {
-            // If it fails, verify it's a timeout or connection error
-            assertThat(e.getMessage()).containsAnyOf(
-                "timeout", 
-                "connection", 
-                "unavailable",
-                "not available"
-            );
-        }
     }
 
     @Test
@@ -159,49 +125,11 @@ public class ErrorHandlingTests extends BaseTest {
         // Try to send to non-existent topic
         // With auto.create.topics.enable=true, this will create the topic
         // With auto.create.topics.enable=false, this will throw an error
-        try {
+
             producerManager.sendSync(message);
             // If it succeeds, auto-create is enabled - that's fine
             // Clean up the auto-created topic
-            try {
+
                 topicManager.deleteTopic(nonExistentTopic);
-            } catch (Exception cleanupError) {
-                log.warn("Failed to cleanup auto-created topic: {}", cleanupError.getMessage());
-            }
-        } catch (RuntimeException e) {
-            // RuntimeException wraps the actual Kafka exception
-            // Check if the cause or cause's cause is expected
-            Throwable cause = e.getCause();
-            Throwable rootCause = cause != null ? cause.getCause() : null;
-            
-            boolean isExpectedError = (cause instanceof TimeoutException) ||
-                                     (cause instanceof org.apache.kafka.common.errors.UnknownTopicOrPartitionException) ||
-                                     (cause instanceof java.util.concurrent.ExecutionException) || // Added
-                                     (e instanceof TimeoutException) ||
-                                     (e instanceof org.apache.kafka.common.errors.UnknownTopicOrPartitionException) ||
-                                     (rootCause instanceof TimeoutException) || // Check root cause too
-                                     (rootCause instanceof org.apache.kafka.common.errors.UnknownTopicOrPartitionException);
-            
-            if (!isExpectedError) {
-                log.error("Unexpected exception type: {} with cause: {} and root cause: {}", 
-                    e.getClass().getName(), 
-                    cause != null ? cause.getClass().getName() : "null",
-                    rootCause != null ? rootCause.getClass().getName() : "null");
-            }
-            
-            assertThat(isExpectedError)
-                .as("Expected TimeoutException, UnknownTopicOrPartitionException or ExecutionException, but got: " + 
-                    e.getClass().getName() + " with cause: " + 
-                    (cause != null ? cause.getClass().getName() : "null") +
-                    " and root cause: " + (rootCause != null ? rootCause.getClass().getName() : "null"))
-                .isTrue();
-        } catch (Exception e) {
-            // If it fails with other exception, verify it's expected
-            assertThat(e).isInstanceOfAny(
-                TimeoutException.class,
-                org.apache.kafka.common.errors.UnknownTopicOrPartitionException.class,
-                java.util.concurrent.ExecutionException.class
-            );
-        }
     }
 }

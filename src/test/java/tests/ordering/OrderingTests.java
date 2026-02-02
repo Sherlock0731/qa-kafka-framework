@@ -77,12 +77,7 @@ public class OrderingTests extends BaseTest {
         
         producerManager.sendBatch(messages);
         producerManager.flush();
-        
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        AsyncTestHelper.waitFor(2);
         
         // Consume
         consumerManager.initConsumer(topic);
@@ -138,12 +133,7 @@ public class OrderingTests extends BaseTest {
         
         producerManager.sendBatch(messages);
         producerManager.flush();
-        
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        AsyncTestHelper.waitFor(2);
         
         // Consume
         consumerManager.initConsumer(topic);

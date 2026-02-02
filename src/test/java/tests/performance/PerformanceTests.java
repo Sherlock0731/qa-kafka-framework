@@ -87,22 +87,12 @@ public class PerformanceTests extends BaseTest {
             producerManager.sendSync(message);
             
             // Small delay to avoid overwhelming
-            if (i % 10 == 0) {
-                try {
-                    Thread.sleep(10);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
+            if (i % 10 == 0) {AsyncTestHelper.waitForMillis(10);
             }
         }
         
         producerManager.flush();
-        
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        AsyncTestHelper.waitFor(2);
         
         // Consume messages and measure latency
         List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 15, messageCount);
@@ -153,13 +143,6 @@ public class PerformanceTests extends BaseTest {
             
             log.info("Batch size: {}, Duration: {} ms, Throughput: {:.2f} msg/sec", 
                     batchSize, duration, throughput);
-            
-            // Small delay between batches
-            try {
-                Thread.sleep(500);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
         }
         
         // Just verify that batching works
@@ -190,13 +173,6 @@ public class PerformanceTests extends BaseTest {
         long produceDuration = produceEnd - produceStart;
         log.info("Produced {} messages in {} ms", messageCount, produceDuration);
         
-        // Wait a bit for messages to be available
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        
         // Consume with delay to simulate slow processing
         long consumeStart = System.currentTimeMillis();
         int totalConsumed = 0;
@@ -209,12 +185,7 @@ public class PerformanceTests extends BaseTest {
             pollAttempts++;
             
             // Simulate processing delay
-            if (!batch.isEmpty()) {
-                try {
-                    Thread.sleep(50); // 50ms processing time
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
+            if (!batch.isEmpty()) {AsyncTestHelper.waitForMillis(50); // 50ms processing time
             }
         }
         
