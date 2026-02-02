@@ -205,6 +205,9 @@ jobs:
             -Dkafka.ssl.key.password=${{ secrets.KAFKA_SSL_KEYSTORE_PASSWORD }} \
             -Dkafka.ssl.keystore.type=PKCS12 \
             -Dkafka.ssl.truststore.type=JKS \
+            -Daiven.api.token=$AIVEN_API_TOKEN \
+            -Daiven.project.name=$AIVEN_PROJECT_NAME \
+            -Daiven.service.name=$AIVEN_SERVICE_NAME \
             -Dallure.results.directory=target/allure-results"
           
           echo "Executing: $MVN_CMD"

@@ -151,6 +151,9 @@ jobs:
               -Dkafka.ssl.keystore.location=${{ env.KAFKA_SSL_KEYSTORE_LOCATION }} \
               -Dkafka.ssl.truststore.password=${{ secrets.KAFKA_SSL_TRUSTSTORE_PASSWORD }} \
               -Dkafka.ssl.keystore.password=${{ secrets.KAFKA_SSL_KEYSTORE_PASSWORD }} \
+              -Daiven.api.token=$AIVEN_API_TOKEN \
+              -Daiven.project.name=$AIVEN_PROJECT_NAME \
+              -Daiven.service.name=$AIVEN_SERVICE_NAME \
               -Dallure.results.directory=target/allure-results
           else
             mvn clean test \
@@ -163,6 +166,9 @@ jobs:
               -Dkafka.ssl.truststore.password=${{ secrets.KAFKA_SSL_TRUSTSTORE_PASSWORD }} \
               -Dkafka.ssl.key.password=${{ secrets.KAFKA_SSL_KEYSTORE_PASSWORD }} \
               -Dkafka.ssl.keystore.password=${{ secrets.KAFKA_SSL_KEYSTORE_PASSWORD }} \
+              -Daiven.api.token=$AIVEN_API_TOKEN \
+              -Daiven.project.name=$AIVEN_PROJECT_NAME \
+              -Daiven.service.name=$AIVEN_SERVICE_NAME \
               -Dallure.results.directory=target/allure-results
           fi
 
