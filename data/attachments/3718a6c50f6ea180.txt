@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class: tests.producer.ProducerTests
+Test Method: testSendMessageWithKey
+Display Name: TC-004: Отправка сообщения с указанным ключом для партиционирования
+Status: PASSED
+Execution Time: 2026-02-02 05:24:50
+Thread: main
+Tag: producer
+Tag: critical
