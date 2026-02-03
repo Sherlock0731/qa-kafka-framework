@@ -1,0 +1,9 @@
+=== Test Execution Info ===
+
+Test Class: tests.transactions.TransactionsTests
+Test Method: testProducerConsumerTransactionCoordination
+Display Name: TC-047: Координация producer и consumer транзакций
+Status: PASSED
+Execution Time: 2026-02-03 12:52:34
+Thread: main
+Tag: transactions
