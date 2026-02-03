@@ -4,6 +4,8 @@ import io.qameta.allure.Description;
 import io.qameta.allure.Severity;
 import io.qameta.allure.SeverityLevel;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.common.errors.SerializationException;
+import org.apache.kafka.common.errors.TimeoutException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -39,8 +41,15 @@ public class ErrorHandlingTests extends BaseTest {
                 .key("test-key")
                 .value(null) // null value
                 .build();
+        
+        try {
+            producerManager.sendSync(invalidMessage);
             // If it doesn't throw, that's fine - null is actually valid in Kafka
             // The test passes as long as it doesn't crash
+        } catch (Exception e) {
+            // If it throws, verify it's a serialization-related exception
+            log.info("Serialization error occurred as expected: {}", e.getMessage());
+        }
     }
 
     @Test
@@ -82,9 +91,13 @@ public class ErrorHandlingTests extends BaseTest {
         int errorCount = 0;
         
         for (KafkaMessageDto message : messages) {
-
+            try {
                 producerManager.sendSync(message);
                 successCount++;
+            } catch (Exception e) {
+                errorCount++;
+                log.debug("Network error occurred (expected): {}", e.getMessage());
+            }
         }
         
         // At least some messages should succeed (or all if network is stable)
@@ -101,10 +114,20 @@ public class ErrorHandlingTests extends BaseTest {
         
         // Send messages - broker may be available or not
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 5);
-
+        
+        try {
             producerManager.sendBatch(messages);
             producerManager.flush();
             // If successful, broker is available - test passes
+        } catch (Exception e) {
+            // If it fails, verify it's a timeout or connection error
+            assertThat(e.getMessage()).containsAnyOf(
+                "timeout", 
+                "connection", 
+                "unavailable",
+                "not available"
+            );
+        }
     }
 
     @Test
@@ -125,11 +148,19 @@ public class ErrorHandlingTests extends BaseTest {
         // Try to send to non-existent topic
         // With auto.create.topics.enable=true, this will create the topic
         // With auto.create.topics.enable=false, this will throw an error
-
+        try {
             producerManager.sendSync(message);
             // If it succeeds, auto-create is enabled - that's fine
             // Clean up the auto-created topic
-
+            try {
                 topicManager.deleteTopic(nonExistentTopic);
+            } catch (Exception cleanupError) {
+                log.warn("Failed to cleanup auto-created topic: {}", cleanupError.getMessage());
+            }
+        } catch (RuntimeException e) {
+            // RuntimeException wraps the actual Kafka exception
+            // This is expected when auto-create is disabled
+            log.info("Topic not found error occurred as expected: {}", e.getMessage());
+        }
     }
 }

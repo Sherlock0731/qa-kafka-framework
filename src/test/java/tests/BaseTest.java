@@ -7,6 +7,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import qa.autotest.framework.config.ConfigFactory;
+import qa.autotest.framework.utils.AsyncTestHelper;
 import qa.autotest.framework.config.KafkaConfig;
 import qa.autotest.framework.kafka.KafkaConsumerManager;
 import qa.autotest.framework.kafka.KafkaProducerManager;
@@ -127,7 +128,7 @@ public abstract class BaseTest {
                     
                     // Wait before retry
                     try {
-                        Thread.sleep(1000 * attempt); // Exponential backoff: 1s, 2s, 3s
+                        AsyncTestHelper.waitFor(attempt); // Exponential backoff: 1s, 2s, 3s
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
                         log.warn("Interrupted during retry wait");

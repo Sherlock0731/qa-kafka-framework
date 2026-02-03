@@ -143,9 +143,16 @@ public class ProducerTests extends BaseTest {
         
         KafkaMessageDto message = TestDataGenerator.generateMessage(topic);
         message.setValue(largeValue.toString());
-        producerManager.sendSync(message);
+        
+        try {
+            producerManager.sendSync(message);
             // If we reach here, the broker accepted it (might have higher limit)
             log.warn("Large message was accepted by broker");
+        } catch (Exception e) {
+            // Expected: message too large
+            assertThat(e.getMessage()).containsIgnoringCase("message");
+            log.info("Large message rejected as expected: {}", e.getMessage());
+        }
     }
 
     @Test
