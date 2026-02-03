@@ -87,7 +87,7 @@ public abstract class BaseTest {
                 log.info("Cleaning up {} test topics", createdTopics.size());
                 
                 for (String topic : createdTopics) {
-                    deleteTopicWithRetry(topic, 3);
+                    deleteTopicWithRetry(topic, 5);  // Увеличено с 3 до 5
                 }
                 
                 log.info("All test topics cleaned up successfully");
@@ -144,7 +144,7 @@ public abstract class BaseTest {
      */
     @Step("Create test topic")
     protected String createTestTopic() {
-        String topic = topicManager.createUniqueTopic();
+        String topic = createTopicWithRetry(() -> topicManager.createUniqueTopic());
         createdTopics.add(topic);
         return topic;
     }
@@ -154,9 +154,37 @@ public abstract class BaseTest {
      */
     @Step("Create test topic with {partitions} partitions")
     protected String createTestTopic(int partitions) {
-        String topic = topicManager.createTopicWithPartitions(partitions);
+        String topic = createTopicWithRetry(() -> topicManager.createTopicWithPartitions(partitions));
         createdTopics.add(topic);
         return topic;
+    }
+    
+    /**
+     * Create topic with retry mechanism for better reliability
+     */
+    private String createTopicWithRetry(java.util.function.Supplier<String> topicCreator) {
+        int maxRetries = 5;  // Увеличено с 3 до 5
+        RuntimeException lastException = null;
+        
+        for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                String topic = topicCreator.get();
+                if (attempt > 1) {
+                    log.info("✓ Topic created successfully on attempt {}", attempt);
+                }
+                return topic;
+            } catch (RuntimeException e) {
+                lastException = e;
+                if (attempt < maxRetries) {
+                    log.warn("Failed to create topic (attempt {}), retrying: {}", attempt, e.getMessage());
+                    AsyncTestHelper.waitFor(3 * attempt); // Exponential backoff: 3s, 6s, 9s, 12s
+                } else {
+                    log.error("✗ Failed to create topic after {} attempts: {}", maxRetries, e.getMessage());
+                }
+            }
+        }
+        
+        throw lastException;
     }
     
     /**
