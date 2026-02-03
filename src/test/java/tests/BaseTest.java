@@ -126,13 +126,8 @@ public abstract class BaseTest {
                     log.warn("Failed to delete topic {} (attempt {}), retrying: {}", 
                         topic, attempt, e.getMessage());
                     
-                    // Wait before retry
-                    try {
-                        AsyncTestHelper.waitFor(attempt); // Exponential backoff: 1s, 2s, 3s
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        log.warn("Interrupted during retry wait");
-                    }
+                    // Wait before retry with exponential backoff: 1s, 2s, 3s
+                    AsyncTestHelper.waitFor(attempt);
                 } else {
                     // Final attempt failed
                     log.error("✗ Failed to delete topic {} after {} attempts: {}", 
