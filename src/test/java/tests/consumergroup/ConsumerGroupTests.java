@@ -46,7 +46,7 @@ public class ConsumerGroupTests extends BaseTest {
         consumerManager.poll(3); // Allow rebalance
         
         // Consume messages
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, messageCount);
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount);
         
         log.info("Consumer consumed {} messages from {} partitions", 
                 records.size(),

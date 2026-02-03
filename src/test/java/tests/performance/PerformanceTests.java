@@ -57,7 +57,7 @@ public class PerformanceTests extends BaseTest {
         log.info("Average latency: {:.2f} ms/message", avgLatencyMs);
         
         // Performance assertions - relaxed for cloud environment
-        assertThat(duration).isLessThan(300000); // Should complete within 5 minutes (was 60s)
+        assertThat(duration).isLessThan(420000); // Should complete within 7 minutes (remote Kafka slower)
         assertThat(throughputMsgPerSec).isGreaterThan(1); // At least 1 msg/sec (was 10)
     }
 

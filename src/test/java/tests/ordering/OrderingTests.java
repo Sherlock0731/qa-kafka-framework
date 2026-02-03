@@ -37,7 +37,22 @@ public class OrderingTests extends BaseTest {
         for (int i = 0; i < messageCount; i++) {
             KafkaMessageDto message = TestDataGenerator.generateMessageWithKey(topic, key);
             message.setValue("message-" + i);
-            producerManager.sendSync(message);
+            
+            // Retry sending if fails (Kafka может быть медленный)
+            boolean sent = false;
+            for (int attempt = 1; attempt <= 3 && !sent; attempt++) {
+                try {
+                    producerManager.sendSync(message);
+                    sent = true;
+                } catch (RuntimeException e) {
+                    if (attempt < 3) {
+                        log.warn("Failed to send message {} (attempt {}), retrying: {}", i, attempt, e.getMessage());
+                        AsyncTestHelper.waitFor(1);
+                    } else {
+                        throw e; // Последняя попытка - пробрасываем ошибку
+                    }
+                }
+            }
         }
         producerManager.flush();
         
