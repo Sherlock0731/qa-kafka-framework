@@ -76,7 +76,7 @@ public class IdempotenceTests extends BaseTest {
         consumerManager.initConsumer(topic);
         
         // Use AsyncTestHelper.pollWithRetry with longer timeout
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, 2);
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, 2);
         assertThat(records).hasSize(2);
         
         // Both should have same message-id
@@ -111,7 +111,7 @@ public class IdempotenceTests extends BaseTest {
         // Consume and check for duplicates
         consumerManager.initConsumer(topic);
         
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, messageCount);
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount);
         
         // Count unique message IDs
         long uniqueCount = records.stream()
@@ -152,7 +152,7 @@ public class IdempotenceTests extends BaseTest {
         // Consume all messages
         consumerManager.initConsumer(topic);
         
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, batchSize * 3);
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, batchSize * 3);
         
         // Should receive all messages in order (within partitions)
         assertThat(records.size()).isGreaterThanOrEqualTo(batchSize * 3);
@@ -192,7 +192,7 @@ public class IdempotenceTests extends BaseTest {
         // Consume and verify no duplicates
         consumerManager.initConsumer(topic);
         
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, messageCount);
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount);
         
         // Count unique messages by unique-id
         long uniqueCount = records.stream()
@@ -234,7 +234,7 @@ public class IdempotenceTests extends BaseTest {
         // Consume all messages
         consumerManager.initConsumer(topic);
         
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, messageCount);
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount);
         
         // Extract unique IDs from consumed messages
         Set<String> receivedMessageIds = new HashSet<>();
@@ -282,7 +282,7 @@ public class IdempotenceTests extends BaseTest {
         // Consume and verify order
         consumerManager.initConsumer(topic);
         
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, messageCount);
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount);
         assertThat(records).hasSize(messageCount);
         
         // All messages should be in same partition

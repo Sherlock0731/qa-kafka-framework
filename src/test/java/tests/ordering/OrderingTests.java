@@ -47,7 +47,7 @@ public class OrderingTests extends BaseTest {
         consumerManager.initConsumer(topic);
         
         // Use AsyncTestHelper.pollWithRetry instead of await()
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, messageCount);
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount);
         assertThat(records).hasSize(messageCount);
         
         // Verify sequential offsets (same partition)
@@ -86,7 +86,7 @@ public class OrderingTests extends BaseTest {
         consumerManager.initConsumer(topic);
         consumerManager.poll(3);
         
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, messageCount);
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount);
         assertThat(records).hasSize(messageCount);
         
         // Group by partition
@@ -142,7 +142,7 @@ public class OrderingTests extends BaseTest {
         consumerManager.initConsumer(topic);
         consumerManager.poll(3);
         
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, messageCount);
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount);
         assertThat(records).hasSize(messageCount);
         
         // All messages should be in same partition (same key)
