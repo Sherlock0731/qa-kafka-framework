@@ -41,6 +41,9 @@ public class OrderingTests extends BaseTest {
         }
         producerManager.flush();
         
+        // Wait for messages to be available in Kafka
+        AsyncTestHelper.waitFor(2);
+        
         consumerManager.initConsumer(topic);
         
         // Use AsyncTestHelper.pollWithRetry instead of await()
