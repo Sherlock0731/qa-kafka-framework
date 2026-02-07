@@ -223,9 +223,11 @@ public class KafkaProducerManager implements AutoCloseable {
     @Override
     public void close() {
         KafkaProducer<String, String> producer = producerThreadLocal.get();
-        if (producer != null) {
-            log.debug("Closing producer on thread: {}", Thread.currentThread().getName());
-            producer.close();
+        try {
+            if (producer != null) {
+                producer.close();
+            }
+        } finally {
             producerThreadLocal.remove();
         }
     }

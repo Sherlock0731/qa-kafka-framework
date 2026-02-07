@@ -269,9 +269,12 @@ public class KafkaConsumerManager implements AutoCloseable {
     @Override
     public void close() {
         KafkaConsumer<String, String> consumer = consumerThreadLocal.get();
-        if (consumer != null) {
-            log.debug("Closing consumer on thread: {}", Thread.currentThread().getName());
-            consumer.close();
+        try {
+            if (consumer != null) {
+                log.debug("Closing consumer on thread: {}", Thread.currentThread().getName());
+                consumer.close();
+            }
+        } finally {
             consumerThreadLocal.remove();
             groupIdThreadLocal.remove();
         }
