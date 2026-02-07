@@ -21,7 +21,7 @@ import java.util.concurrent.ExecutionException;
  * Manages creation, deletion and inspection of Kafka topics
  */
 @Slf4j
-public class KafkaTopicManager {
+public class KafkaTopicManager implements AutoCloseable {
     
     private final KafkaConfig config;
     private final Admin adminClient;
@@ -177,6 +177,7 @@ public class KafkaTopicManager {
     /**
      * Closes the admin client
      */
+    @Override
     public void close() {
         if (adminClient != null) {
             log.debug("Closing admin client");

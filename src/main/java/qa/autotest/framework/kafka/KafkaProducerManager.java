@@ -23,7 +23,7 @@ import java.util.concurrent.Future;
  * Manages Kafka producer instances and message sending operations
  */
 @Slf4j
-public class KafkaProducerManager {
+public class KafkaProducerManager implements AutoCloseable {
     
     private final KafkaConfig config;
     private final ThreadLocal<KafkaProducer<String, String>> producerThreadLocal;
@@ -220,6 +220,7 @@ public class KafkaProducerManager {
     /**
      * Closes the producer for the current thread
      */
+    @Override
     public void close() {
         KafkaProducer<String, String> producer = producerThreadLocal.get();
         if (producer != null) {

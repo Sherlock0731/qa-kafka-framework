@@ -60,52 +60,19 @@ public abstract class BaseTest {
     @Step("Cleanup test environment")
     void tearDown() {
         log.info("=== Test Cleanup Started ===");
-        
-        try {
-            // Close consumer first
-            if (consumerManager != null) {
-                try {
-                    consumerManager.close();
-                    log.debug("Consumer closed successfully");
-                } catch (Exception e) {
-                    log.warn("Error closing consumer: {}", e.getMessage());
-                }
-            }
-            
-            // Close producer
-            if (producerManager != null) {
-                try {
-                    producerManager.close();
-                    log.debug("Producer closed successfully");
-                } catch (Exception e) {
-                    log.warn("Error closing producer: {}", e.getMessage());
-                }
-            }
-            
-            // STRICT CLEANUP: Always delete topics regardless of config
+
+        // delete topics first (если это требуется логикой)
+        safeRun("delete topics", () -> {
             if (topicManager != null && !createdTopics.isEmpty()) {
                 log.info("Cleaning up {} test topics", createdTopics.size());
-                
-                for (String topic : createdTopics) {
-                    deleteTopicWithRetry(topic, 5);  // Увеличено с 3 до 5
-                }
-                
-                log.info("All test topics cleaned up successfully");
+                createdTopics.forEach(t -> deleteTopicWithRetry(t, 5));
             }
-            
-        } finally {
-            // Close topic manager in finally block to ensure it's always closed
-            if (topicManager != null) {
-                try {
-                    topicManager.close();
-                    log.debug("Topic manager closed successfully");
-                } catch (Exception e) {
-                    log.warn("Error closing topic manager: {}", e.getMessage());
-                }
-            }
-        }
-        
-        log.info("=== Test Finished: {} ===", this.getClass().getSimpleName());
+        });
+        safeClose(producerManager, "producer");
+        safeClose(consumerManager, "consumer");
+        safeClose(topicManager, "topic manager");
+
+        log.info("=== Test Finished: {} ===", getClass().getSimpleName());
     }
     
     /**
@@ -214,6 +181,25 @@ public abstract class BaseTest {
         if (!createdTopics.contains(topicName)) {
             createdTopics.add(topicName);
             log.debug("Manually tracking topic for cleanup: {}", topicName);
+        }
+    }
+
+    private void safeClose(AutoCloseable c, String name) {
+        if (c == null) return;
+
+        try {
+            c.close();
+            log.debug("{} closed", name);
+        } catch (Exception e) {
+            log.warn("Failed to close {}: {}", name, e.getMessage());
+        }
+    }
+
+    private void safeRun(String name, Runnable action) {
+        try {
+            action.run();
+        } catch (Exception e) {
+            log.warn("Cleanup step '{}' failed: {}", name, e.getMessage());
         }
     }
 }

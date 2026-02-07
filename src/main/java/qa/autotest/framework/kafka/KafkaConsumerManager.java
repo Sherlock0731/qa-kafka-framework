@@ -28,7 +28,7 @@ import java.util.UUID;
  * Manages Kafka consumer instances and message consumption operations
  */
 @Slf4j
-public class KafkaConsumerManager {
+public class KafkaConsumerManager implements AutoCloseable {
     
     private final KafkaConfig config;
     private final ThreadLocal<KafkaConsumer<String, String>> consumerThreadLocal;
@@ -266,6 +266,7 @@ public class KafkaConsumerManager {
     /**
      * Closes the consumer for the current thread
      */
+    @Override
     public void close() {
         KafkaConsumer<String, String> consumer = consumerThreadLocal.get();
         if (consumer != null) {
