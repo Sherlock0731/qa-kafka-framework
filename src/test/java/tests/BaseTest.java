@@ -38,7 +38,7 @@ public abstract class BaseTest {
     @BeforeAll
     static void setUpAll() {
         log.info("=== Kafka Test Framework Initialized ===");
-        log.info("Bootstrap Servers: {}", CONFIG.kafkaBootstrapServers());
+        log.info("Kafka SSL enabled");
         log.info("Security Protocol: {}", CONFIG.securityProtocol());
     }
 

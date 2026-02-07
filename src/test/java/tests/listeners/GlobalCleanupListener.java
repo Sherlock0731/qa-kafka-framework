@@ -31,7 +31,7 @@ public class GlobalCleanupListener implements TestExecutionListener {
         log.info("╚════════════════════════════════════════════════════════════════════════════╝");
         log.info("Total tests discovered: {}", testPlan.countTestIdentifiers(t -> t.isTest()));
         log.info("Environment: {}", CONFIG.environment());
-        log.info("Kafka Bootstrap Servers: {}", CONFIG.kafkaBootstrapServers());
+        log.info("Kafka SSL enabled");
         
         // Log Aiven API configuration status
         String configStatus = CLEANUP_MANAGER.getConfigurationStatus();

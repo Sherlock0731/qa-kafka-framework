@@ -36,7 +36,7 @@ public class ConfigFactory {
                     config = org.aeonbits.owner.ConfigFactory.create(KafkaConfig.class);
                     
                     log.info("Configuration initialized successfully");
-                    log.debug("Kafka Bootstrap Servers: {}", config.kafkaBootstrapServers());
+                    log.debug("Kafka SSL enabled");
                     log.debug("Security Protocol: {}", config.securityProtocol());
                     log.debug("Thread count: {}", config.threadCount());
                 }
