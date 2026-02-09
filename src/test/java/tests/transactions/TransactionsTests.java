@@ -178,6 +178,14 @@ public class TransactionsTests extends BaseTest {
     void testExactlyOnceSemantics() {
         String topic = createTestTopic();
         
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        
+        // Pre-warm poll to ensure consumer is ready
+        consumerManager.poll(2);
+        AsyncTestHelper.waitFor(1);
+        
         // Send messages with exactly-once guarantee
         int messageCount = 20;
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, messageCount);
@@ -192,11 +200,8 @@ public class TransactionsTests extends BaseTest {
         producerManager.flush();
         AsyncTestHelper.waitFor(2);
         
-        // Consume with exactly-once processing
-        consumerManager.initConsumer(topic);
-        consumerManager.poll(3);
-        
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, messageCount);
+        // Poll for messages with sufficient timeout
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount);
         
         // Count unique messages by eo-id
         long uniqueMessages = records.stream()
@@ -354,14 +359,23 @@ public class TransactionsTests extends BaseTest {
     void testTransactionRecoveryAfterFailure() {
         String topic = createTestTopic();
         
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        
+        // Pre-warm poll to ensure consumer is ready
+        consumerManager.poll(2);
+        AsyncTestHelper.waitFor(1);
+        
         // Transaction 1: Will "fail"
         List<KafkaMessageDto> failedTxnMessages = TestDataGenerator.generateMessages(topic, 5);
         for (KafkaMessageDto msg : failedTxnMessages) {
             msg.addHeader("transaction", "txn-failed");
-        }producerManager.sendBatch(failedTxnMessages);
-            // Simulate failure - don't flush/commit
+        }
+        producerManager.sendBatch(failedTxnMessages);
+        // Simulate failure - don't flush/commit
 
-            AsyncTestHelper.waitFor(1);
+        AsyncTestHelper.waitFor(2); // Increased from 1
         
         // Transaction 2: Should succeed after recovery
         List<KafkaMessageDto> recoveredTxnMessages = TestDataGenerator.generateMessages(topic, 5);
@@ -370,16 +384,16 @@ public class TransactionsTests extends BaseTest {
         }
         
         producerManager.sendBatch(recoveredTxnMessages);
-        producerManager.flush(); // CommitAsyncTestHelper.waitFor(2);
+        producerManager.flush(); // Commit
+        AsyncTestHelper.waitFor(3); // Increased from 2
         
-        // Verify only recovered transaction messages
-        consumerManager.initConsumer(topic);
-        consumerManager.poll(3);
-        
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, 5);
+        // Poll for messages with longer timeout
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, 5); // Increased from 10
         
         // Should have messages from recovered transaction
-        assertThat(records.size()).isGreaterThan(0);
+        assertThat(records.size())
+                .as("Should receive messages from committed transaction")
+                .isGreaterThan(0);
         
         // Count messages from each transaction
         long failedCount = records.stream()
@@ -390,6 +404,11 @@ public class TransactionsTests extends BaseTest {
                 .count();
         
         log.info("Transaction recovery: {} failed, {} recovered messages", failedCount, recoveredCount);
+        
+        // Should have at least some messages (main point of test)
+        assertThat(records.size())
+                .as("Should have received at least some messages")
+                .isGreaterThanOrEqualTo(5);
         
         // Should have more recovered than failed (or all recovered)
         assertThat(recoveredCount).isGreaterThanOrEqualTo(failedCount);
