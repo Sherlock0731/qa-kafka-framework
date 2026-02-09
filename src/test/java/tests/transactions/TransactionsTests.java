@@ -138,6 +138,10 @@ public class TransactionsTests extends BaseTest {
     void testReadCommittedIsolation() {
         String topic = createTestTopic();
         
+        // Initialize consumer BEFORE producing to avoid consumer rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        
         // Send committed messages
         List<KafkaMessageDto> committedMessages = TestDataGenerator.generateMessages(topic, 10);
         for (KafkaMessageDto msg : committedMessages) {
@@ -145,10 +149,11 @@ public class TransactionsTests extends BaseTest {
         }
         
         producerManager.sendBatch(committedMessages);
-        producerManager.flush(); // Ensure committedAsyncTestHelper.waitFor(2);
+        producerManager.flush(); // Ensure committed
+        
+        AsyncTestHelper.waitFor(2);
 
-        // Consumer with read_committed isolation (default in our setup)
-        consumerManager.initConsumer(topic);
+        // Poll initial assignment
         consumerManager.poll(3);
         
         List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, 10);

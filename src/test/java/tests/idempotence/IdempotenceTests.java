@@ -132,6 +132,10 @@ public class IdempotenceTests extends BaseTest {
     void testProducerIdRotation() {
         String topic = createTestTopic();
         
+        // Initialize consumer BEFORE producing to avoid consumer rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        
         // Send messages in sequence
         int batchSize = 5;
         
@@ -147,10 +151,9 @@ public class IdempotenceTests extends BaseTest {
             producerManager.sendBatch(messages);
             producerManager.flush();
             AsyncTestHelper.waitForMillis(500);
-        }AsyncTestHelper.waitFor(2);
+        }
         
-        // Consume all messages
-        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(2);
         
         List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, batchSize * 3);
         
