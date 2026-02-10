@@ -33,31 +33,29 @@ public class TransactionsTests extends BaseTest {
     @Tag("transactions")
     void testTransactionalSend() {
         String topic = createTestTopic(2); // 2 partitions (Aiven limit)
-        
-        // Send messages in transaction
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         int messageCount = 10;
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, messageCount);
-        
-        // Add transaction marker
+
         for (int i = 0; i < messages.size(); i++) {
             messages.get(i).addHeader("transaction-id", "txn-001");
             messages.get(i).addHeader("sequence", String.valueOf(i));
         }
-        
-        // Send as transaction (if transactional producer configured)
+
         producerManager.sendBatch(messages);
         producerManager.flush();
         AsyncTestHelper.waitFor(2);
-        
-        // Consume with read_committed isolation
-        consumerManager.initConsumer(topic);
-        consumerManager.poll(3);
-        
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, messageCount);
-        
-        // Should get all or none (atomic transaction)
+
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount);
+
         assertThat(records.size()).isIn(0, messageCount);
-        
+
         log.info("Transaction result: {} messages consumed", records.size());
     }
 
@@ -68,26 +66,27 @@ public class TransactionsTests extends BaseTest {
     @Tag("transactions")
     void testTransactionCommit() {
         String topic = createTestTopic();
-        
-        // Transaction 1: Commit
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         List<KafkaMessageDto> txn1Messages = TestDataGenerator.generateMessages(topic, 5);
         for (KafkaMessageDto msg : txn1Messages) {
             msg.addHeader("transaction", "txn-1-commit");
         }
-        
+
         producerManager.sendBatch(txn1Messages);
-        producerManager.flush(); // CommitAsyncTestHelper.waitFor(2);
-        
-        // Consume committed messages
-        consumerManager.initConsumer(topic);
-        consumerManager.poll(3);
-        
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, 5);
-        
-        // Should receive committed messages
+        producerManager.flush();
+        AsyncTestHelper.waitFor(2);
+
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, 5);
+
         assertThat(records.size()).isGreaterThan(0);
         assertThat(records.size()).isLessThanOrEqualTo(5);
-        
+
         log.info("Committed transaction: {} messages received", records.size());
     }
 
@@ -98,35 +97,29 @@ public class TransactionsTests extends BaseTest {
     @Tag("transactions")
     void testTransactionRollback() {
         String topic = createTestTopic();
-        
-        // Simulate transaction that should be rolled back
-        // In actual implementation, this would use transactional API
-        
-        // Send messages
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 5);
         for (KafkaMessageDto msg : messages) {
             msg.addHeader("transaction", "txn-rollback");
             msg.addHeader("should-rollback", "true");
-        }producerManager.sendBatch(messages);
-            // Don't flush - simulate rollback
-            
-            // In real transactional producer:
-            // producer.abortTransaction();
-            
+        }
 
-            AsyncTestHelper.waitFor(2);
-        
-        // Try to consume - may or may not get messages depending on rollback
-        consumerManager.initConsumer(topic);
-        consumerManager.poll(3);
-        
+        producerManager.sendBatch(messages);
+        // Don't flush - simulate rollback
+        // In real transactional producer: producer.abortTransaction();
+
+        AsyncTestHelper.waitFor(2);
+
         List<ConsumerRecordDto> records = consumerManager.poll(2);
-        
-        // With rollback, should get 0 messages
-        // Without rollback (non-transactional), may get messages
+
         log.info("After rollback attempt: {} messages found", records.size());
-        
-        // Test passes regardless - just verifies behavior
+
         assertThat(records.size()).isGreaterThanOrEqualTo(0);
     }
 
@@ -137,35 +130,34 @@ public class TransactionsTests extends BaseTest {
     @Tag("transactions")
     void testReadCommittedIsolation() {
         String topic = createTestTopic();
-        
-        // Initialize consumer BEFORE producing to avoid consumer rebalance timing issues
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
         consumerManager.initConsumer(topic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        
-        // Send committed messages
+        AsyncTestHelper.waitFor(5);  // Wait for consumer group rebalance
+        consumerManager.poll(2);     // Pre-warm: trigger partition assignment
+        AsyncTestHelper.waitFor(2);  // Extra wait — this test had rebalance completing at T+19s in logs
+
+        // NOW send committed messages — consumer is fully ready
         List<KafkaMessageDto> committedMessages = TestDataGenerator.generateMessages(topic, 10);
         for (KafkaMessageDto msg : committedMessages) {
             msg.addHeader("isolation", "committed");
         }
-        
+
         producerManager.sendBatch(committedMessages);
-        producerManager.flush(); // Ensure committed
-        
+        producerManager.flush();
         AsyncTestHelper.waitFor(2);
 
-        // Poll initial assignment
-        consumerManager.poll(3);
-        
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, 10);
-        
+        // Poll with 30s timeout (was 10s — not enough for cloud Kafka)
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, 10);
+
         // Should only get committed messages
         assertThat(records.size()).isGreaterThan(0);
-        
+
         // Verify all messages have committed marker
         for (ConsumerRecordDto record : records) {
             assertThat(record.getHeaders().get("isolation")).isEqualTo("committed");
         }
-        
+
         log.info("Read committed: {} messages consumed", records.size());
     }
 
@@ -225,14 +217,18 @@ public class TransactionsTests extends BaseTest {
     void testMultiTopicTransaction() {
         String topic1 = createTestTopic();
         String topic2 = createTestTopic();
-        
-        // Transaction spanning two topics
+
+        // Initialize consumers BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic1);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll
+        AsyncTestHelper.waitFor(1);
+
         List<KafkaMessageDto> messages1 = TestDataGenerator.generateMessages(topic1, 5);
         List<KafkaMessageDto> messages2 = TestDataGenerator.generateMessages(topic2, 5);
-        
+
         String txnId = "multi-topic-txn-001";
-        
-        // Mark all messages with same transaction ID
+
         for (KafkaMessageDto msg : messages1) {
             msg.addHeader("transaction-id", txnId);
             msg.addHeader("topic", "topic1");
@@ -241,28 +237,27 @@ public class TransactionsTests extends BaseTest {
             msg.addHeader("transaction-id", txnId);
             msg.addHeader("topic", "topic2");
         }
-        
-        // Send to both topics in same transaction
+
         producerManager.sendBatch(messages1);
         producerManager.sendBatch(messages2);
-        producerManager.flush(); // Commit transactionAsyncTestHelper.waitFor(2);
-        
+        producerManager.flush();
+        AsyncTestHelper.waitFor(2);
+
         // Verify messages in topic1
-        consumerManager.initConsumer(topic1);
-        consumerManager.poll(3);
-        List<ConsumerRecordDto> records1 = AsyncTestHelper.pollWithRetry(consumerManager, 10, 5);
-        
+        List<ConsumerRecordDto> records1 = AsyncTestHelper.pollWithRetry(consumerManager, 30, 5);
+
         // Verify messages in topic2
         consumerManager.close();
         consumerManager.initConsumer(topic2);
-        consumerManager.poll(3);
-        List<ConsumerRecordDto> records2 = AsyncTestHelper.pollWithRetry(consumerManager, 10, 5);
-        
-        // Both topics should have messages from transaction
+        AsyncTestHelper.waitFor(5);
+        consumerManager.poll(2);
+        AsyncTestHelper.waitFor(1);
+        List<ConsumerRecordDto> records2 = AsyncTestHelper.pollWithRetry(consumerManager, 30, 5);
+
         assertThat(records1.size()).isGreaterThan(0);
         assertThat(records2.size()).isGreaterThan(0);
-        
-        log.info("Multi-topic transaction: {} messages in topic1, {} in topic2", 
+
+        log.info("Multi-topic transaction: {} messages in topic1, {} in topic2",
                 records1.size(), records2.size());
     }
 
@@ -273,29 +268,26 @@ public class TransactionsTests extends BaseTest {
     @Tag("transactions")
     void testTransactionTimeout() {
         String topic = createTestTopic();
-        
-        // Start transaction
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 10);
         for (KafkaMessageDto msg : messages) {
             msg.addHeader("transaction", "txn-timeout");
         }
-        
-        // Send messages
+
         producerManager.sendBatch(messages);
-        
-        // Commit transaction
         producerManager.flush();
         AsyncTestHelper.waitFor(2);
-        
-        // Verify messages committed before timeout
-        consumerManager.initConsumer(topic);
-        consumerManager.poll(3);
-        
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, 10);
-        
-        // Should get messages if committed before timeout
+
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, 10);
+
         assertThat(records.size()).isGreaterThanOrEqualTo(0);
-        
+
         log.info("Transaction with delay: {} messages received", records.size());
     }
 
@@ -307,20 +299,22 @@ public class TransactionsTests extends BaseTest {
     void testProducerConsumerTransactionCoordination() {
         String inputTopic = createTestTopic();
         String outputTopic = createTestTopic();
-        
+
+        // Initialize consumer on input topic BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(inputTopic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         // Send messages to input topic
         int messageCount = 10;
         List<KafkaMessageDto> inputMessages = TestDataGenerator.generateMessages(inputTopic, messageCount);
         producerManager.sendBatch(inputMessages);
         producerManager.flush();
         AsyncTestHelper.waitFor(2);
-        
-        // Consume from input, transform, and send to output in transaction
-        consumerManager.initConsumer(inputTopic);
-        consumerManager.poll(3);
-        
-        List<ConsumerRecordDto> inputRecords = AsyncTestHelper.pollWithRetry(consumerManager, 10, messageCount);
-        
+
+        List<ConsumerRecordDto> inputRecords = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount);
+
         // Transform and send to output topic
         List<KafkaMessageDto> outputMessages = new java.util.ArrayList<>();
         for (ConsumerRecordDto record : inputRecords) {
@@ -332,21 +326,23 @@ public class TransactionsTests extends BaseTest {
             outputMsg.addHeader("original-offset", String.valueOf(record.getOffset()));
             outputMessages.add(outputMsg);
         }
-        
-        producerManager.sendBatch(outputMessages);
-        producerManager.flush(); // CommitAsyncTestHelper.waitFor(2);
-        
-        // Verify processed messages in output topic
+
+        // Init consumer on output topic BEFORE sending to it
         consumerManager.close();
         consumerManager.initConsumer(outputTopic);
-        consumerManager.poll(3);
-        
-        List<ConsumerRecordDto> outputRecords = AsyncTestHelper.pollWithRetry(consumerManager, 10, inputRecords.size());
-        
-        // Should have processed all input messages
+        AsyncTestHelper.waitFor(5);
+        consumerManager.poll(2);
+        AsyncTestHelper.waitFor(1);
+
+        producerManager.sendBatch(outputMessages);
+        producerManager.flush();
+        AsyncTestHelper.waitFor(2);
+
+        List<ConsumerRecordDto> outputRecords = AsyncTestHelper.pollWithRetry(consumerManager, 30, inputRecords.size());
+
         assertThat(outputRecords.size()).isEqualTo(inputRecords.size());
-        
-        log.info("Transaction coordination: {} input → {} output messages", 
+
+        log.info("Transaction coordination: {} input → {} output messages",
                 inputRecords.size(), outputRecords.size());
     }
 

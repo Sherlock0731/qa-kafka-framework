@@ -28,17 +28,21 @@ public class OrderingTests extends BaseTest {
     @Severity(SeverityLevel.BLOCKER)
     @Tag("smoke")
     void testOrderingWithinPartition() {
-        // Use 1 partition for Aiven Free Tier (changed from 3)
         String topic = createTestTopic();
         String key = "order-test";
         int messageCount = 100;
-        
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         // Send messages with same key
         for (int i = 0; i < messageCount; i++) {
             KafkaMessageDto message = TestDataGenerator.generateMessageWithKey(topic, key);
             message.setValue("message-" + i);
-            
-            // Retry sending if fails (Kafka может быть медленный)
+
             boolean sent = false;
             for (int attempt = 1; attempt <= 3 && !sent; attempt++) {
                 try {
@@ -49,26 +53,21 @@ public class OrderingTests extends BaseTest {
                         log.warn("Failed to send message {} (attempt {}), retrying: {}", i, attempt, e.getMessage());
                         AsyncTestHelper.waitFor(1);
                     } else {
-                        throw e; // Последняя попытка - пробрасываем ошибку
+                        throw e;
                     }
                 }
             }
         }
         producerManager.flush();
-        
-        // Wait for messages to be available in Kafka
         AsyncTestHelper.waitFor(2);
-        
-        consumerManager.initConsumer(topic);
-        
-        // Use AsyncTestHelper.pollWithRetry instead of await()
+
         List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount);
         assertThat(records).hasSize(messageCount);
-        
+
         // Verify sequential offsets (same partition)
         Integer partition = records.get(0).getPartition();
         long prevOffset = records.get(0).getOffset();
-        
+
         for (int i = 1; i < records.size(); i++) {
             assertThat(records.get(i).getPartition()).isEqualTo(partition);
             assertThat(records.get(i).getOffset()).isEqualTo(prevOffset + 1);
@@ -83,42 +82,43 @@ public class OrderingTests extends BaseTest {
     @Tag("ordering")
     void testOrderingMultiplePartitions() {
         String topic = createTestTopic(2); // 2 partitions (Aiven limit)
-        
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         // Send messages without key (will distribute across partitions)
         int messageCount = 15;
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, messageCount);
-        
+
         // Add sequence numbers
         for (int i = 0; i < messages.size(); i++) {
             messages.get(i).addHeader("sequence", String.valueOf(i));
         }
-        
+
         producerManager.sendBatch(messages);
         producerManager.flush();
         AsyncTestHelper.waitFor(2);
-        
-        // Consume
-        consumerManager.initConsumer(topic);
-        consumerManager.poll(3);
-        
+
         List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount);
         assertThat(records).hasSize(messageCount);
-        
+
         // Group by partition
         var byPartition = records.stream()
                 .collect(java.util.stream.Collectors.groupingBy(ConsumerRecordDto::getPartition));
-        
+
         log.info("Messages distributed across {} partitions", byPartition.size());
-        
+
         // Within each partition, ordering should be maintained
         for (var entry : byPartition.entrySet()) {
             List<ConsumerRecordDto> partitionRecords = entry.getValue();
-            
+
             if (partitionRecords.size() > 1) {
                 long prevOffset = partitionRecords.get(0).getOffset();
-                
+
                 for (int i = 1; i < partitionRecords.size(); i++) {
-                    // Offsets should be sequential within partition
                     assertThat(partitionRecords.get(i).getOffset()).isGreaterThan(prevOffset);
                     prevOffset = partitionRecords.get(i).getOffset();
                 }
@@ -133,7 +133,13 @@ public class OrderingTests extends BaseTest {
     @Tag("ordering")
     void testOrderingWithKey() {
         String topic = createTestTopic(2); // 2 partitions (Aiven limit)
-        
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         // Send messages with same key (should go to same partition)
         String key = "ordered-key";
         int messageCount = 20;
@@ -152,10 +158,6 @@ public class OrderingTests extends BaseTest {
         producerManager.sendBatch(messages);
         producerManager.flush();
         AsyncTestHelper.waitFor(2);
-        
-        // Consume
-        consumerManager.initConsumer(topic);
-        consumerManager.poll(3);
         
         List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount);
         assertThat(records).hasSize(messageCount);

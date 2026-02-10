@@ -78,29 +78,27 @@ public class ProducerTests extends BaseTest {
     @Severity(SeverityLevel.NORMAL)
     void testSendMessageWithHeaders() {
         String topic = createTestTopic();
-        
-        Map<String, String> headers = new HashMap<>();
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
+        java.util.Map<String, String> headers = new java.util.HashMap<>();
         headers.put("trace-id", "trace-123");
         headers.put("user-id", "user-456");
-        
+
         KafkaMessageDto message = TestDataGenerator.generateMessage(topic);
         message.setHeaders(headers);
-        
+
         RecordMetadata metadata = producerManager.sendSync(message);
-        
+
         assertThat(metadata).isNotNull();
-        
-        // Verify by consuming - initialize consumer in main thread
-        consumerManager.initConsumer(topic);
-        
-        // Poll with retry logic without awaitility to avoid threading issues
-        List<ConsumerRecordDto> records = new ArrayList<>();
-        for (int i = 0; i < 10 && records.isEmpty(); i++) {
-            records = consumerManager.poll(2);
-            if (records.isEmpty()) {AsyncTestHelper.waitForMillis(500);
-            }
-        }
-        
+
+        // Poll with retry
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, 1);
+
         assertThat(records).isNotEmpty();
         ConsumerRecordDto record = records.get(0);
         assertThat(record.getHeaders()).containsEntry("trace-id", "trace-123");
@@ -161,26 +159,27 @@ public class ProducerTests extends BaseTest {
     @Severity(SeverityLevel.NORMAL)
     void testProducerCompression() {
         String topic = createTestTopic();
-        
-        // Send compressible messages (repeated text compresses well)
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         int messageCount = 20;
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, messageCount);
-        
-        // Add repetitive content for better compression
+
         for (KafkaMessageDto msg : messages) {
             msg.setValue("Repeated text for compression. ".repeat(100));
         }
-        
+
         producerManager.sendBatch(messages);
         producerManager.flush();
+        AsyncTestHelper.waitFor(3);
 
-        AsyncTestHelper.waitFor(3); // Increased from 1s to 3s
-        
-        // Verify messages were sent successfully
-        consumerManager.initConsumer(topic);
         List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 60, messageCount);
-        
-        assertThat(records.size()).isGreaterThanOrEqualTo(messageCount); // Changed to >= for flexibility
+
+        assertThat(records.size()).isGreaterThanOrEqualTo(messageCount);
     }
 
     @Test
@@ -189,24 +188,25 @@ public class ProducerTests extends BaseTest {
     @Severity(SeverityLevel.CRITICAL)
     void testProducerAcks() {
         String topic = createTestTopic();
-        
-        // Send with acks=all (configured in producer)
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 10);
-        
+
         long startTime = System.currentTimeMillis();
         producerManager.sendBatch(messages);
         producerManager.flush();
         long endTime = System.currentTimeMillis();
-        
-        // With acks=all, should take slightly longer than acks=1
-        // but should complete successfully
+
         long duration = endTime - startTime;
         log.info("Send with acks=all took {} ms", duration);
-        
-        consumerManager.initConsumer(topic);
-        consumerManager.poll(3);
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, 10);
-        
+
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, 10);
+
         assertThat(records).hasSize(10);
     }
 
@@ -279,25 +279,22 @@ public class ProducerTests extends BaseTest {
     @Severity(SeverityLevel.CRITICAL)
     void testTransactionalProducer() {
         String topic = createTestTopic();
-        
-        // Note: This test assumes transactional support
-        // If not configured, it will work like normal send
-        
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 10);
 
-            // Send as a transaction (if supported)
-            producerManager.sendBatch(messages);
-            producerManager.flush();
-            
-            // Verify all messages committed
-            AsyncTestHelper.waitFor(1);
-            
-            consumerManager.initConsumer(topic);
-            consumerManager.poll(3);
-            List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, 10);
-            
-            // Should get all or none (transactional guarantee)
-            assertThat(records.size()).isIn(0, 10);
+        producerManager.sendBatch(messages);
+        producerManager.flush();
+        AsyncTestHelper.waitFor(1);
+
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, 10);
+
+        assertThat(records.size()).isIn(0, 10);
     }
 
     @Test

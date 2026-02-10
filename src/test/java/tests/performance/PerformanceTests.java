@@ -69,9 +69,11 @@ public class PerformanceTests extends BaseTest {
     void testEndToEndLatency() {
         String topic = createTestTopic();
         
-        // Initialize consumer first
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
         consumerManager.initConsumer(topic);
-        consumerManager.poll(2);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
         
         int messageCount = 100;
         long totalLatency = 0;
@@ -87,7 +89,8 @@ public class PerformanceTests extends BaseTest {
             producerManager.sendSync(message);
             
             // Small delay to avoid overwhelming
-            if (i % 10 == 0) {AsyncTestHelper.waitForMillis(10);
+            if (i % 10 == 0) {
+                AsyncTestHelper.waitForMillis(10);
             }
         }
         
@@ -95,7 +98,7 @@ public class PerformanceTests extends BaseTest {
         AsyncTestHelper.waitFor(2);
         
         // Consume messages and measure latency
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 15, messageCount);
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount);
         
         for (ConsumerRecordDto record : records) {
             String sendTimestampStr = record.getHeaders().get("send-timestamp");
@@ -107,16 +110,20 @@ public class PerformanceTests extends BaseTest {
             }
         }
         
+        // Guard against empty records to avoid NaN
+        assertThat(records.size())
+                .as("Should receive at least some messages for latency measurement")
+                .isGreaterThan(messageCount / 2);
+        
         double avgLatency = (double) totalLatency / records.size();
         
         log.info("=== End-to-End Latency Test ===");
         log.info("Messages: {}", records.size());
-        log.info("Average latency: {:.2f} ms", avgLatency);
+        log.info("Average latency: {} ms", String.format("%.2f", avgLatency));
         log.info("Total latency: {} ms", totalLatency);
         
         // Latency should be reasonable for cloud environment
-        assertThat(avgLatency).isLessThan(30000); // Less than 30 seconds average (was 5s)
-        assertThat(records.size()).isGreaterThan(messageCount / 2); // Got at least half the messages
+        assertThat(avgLatency).isLessThan(30000); // Less than 30 seconds average
     }
 
     @Test

@@ -97,22 +97,20 @@ public class ConsumerTests extends BaseTest {
     void testReadMessagesWithHeaders() {
         String topic = createTestTopic();
         
-        // Initialize consumer FIRST
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
         consumerManager.initConsumer(topic);
-        
-        // Longer dummy poll to allow consumer group join to complete (~5s for full join)
-        consumerManager.poll(5);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
         
         // NOW send message with headers AFTER consumer is ready
         KafkaMessageDto message = TestDataGenerator.generateMessage(topic);
         message.getHeaders().put("custom-header", "custom-value");
         
         producerManager.sendSync(message);
+        AsyncTestHelper.waitFor(2); // Wait for message to be written to Kafka
         
-        // Wait for message to be written to KafkaAsyncTestHelper.waitFor(1);
-        
-        // Use AsyncTestHelper.pollWithRetry
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, 1);
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, 1);
         assertThat(records).isNotEmpty();
         
         ConsumerRecordDto record = records.get(0);
@@ -125,19 +123,22 @@ public class ConsumerTests extends BaseTest {
     @Severity(SeverityLevel.CRITICAL)
     void testConsumerGroupCoordination() {
         String topic = createTestTopic(2); // 2 partitions (Aiven limit)
-        
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         // Send messages to different partitions
         int messageCount = 30;
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, messageCount);
         producerManager.sendBatch(messages);
         producerManager.flush();
         AsyncTestHelper.waitFor(2);
-        
-        // Create first consumer in group
-        consumerManager.initConsumer(topic);
-        
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, messageCount);
-        
+
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount);
+
         // Single consumer should get all messages
         assertThat(records.size()).isGreaterThan(0);
     }
@@ -148,35 +149,32 @@ public class ConsumerTests extends BaseTest {
     @Severity(SeverityLevel.NORMAL)
     void testConsumerPauseResume() {
         String topic = createTestTopic();
-        
-        // Initialize consumer
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
         consumerManager.initConsumer(topic);
-        
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         // Send first batch
         List<KafkaMessageDto> batch1 = TestDataGenerator.generateMessages(topic, 5);
         producerManager.sendBatch(batch1);
         producerManager.flush();
-        AsyncTestHelper.waitFor(2); // Wait longer for messages
-        
+        AsyncTestHelper.waitFor(2);
+
         // Consume first batch
-        List<ConsumerRecordDto> records1 = AsyncTestHelper.pollWithRetry(consumerManager, 10, 5);
-        assertThat(records1.size()).isGreaterThanOrEqualTo(5); // Should get at least 5 messages
-        
-        // Pause (if method exists)
-        // consumerManager.pause();
-        
+        List<ConsumerRecordDto> records1 = AsyncTestHelper.pollWithRetry(consumerManager, 30, 5);
+        assertThat(records1.size()).isGreaterThanOrEqualTo(5);
+
         // Send second batch while paused
         List<KafkaMessageDto> batch2 = TestDataGenerator.generateMessages(topic, 5);
         producerManager.sendBatch(batch2);
         producerManager.flush();
         AsyncTestHelper.waitFor(1);
-        
-        // Resume and consume
-        // consumerManager.resume();
+
         List<ConsumerRecordDto> records2 = AsyncTestHelper.pollWithRetry(consumerManager, 5, 5);
-        assertThat(records2.size()).isGreaterThanOrEqualTo(0); // May get messages immediately
-        
-        // Total messages should be at least 5 (from first batch)
+        assertThat(records2.size()).isGreaterThanOrEqualTo(0);
+
         assertThat(records1.size() + records2.size()).isGreaterThanOrEqualTo(5);
     }
 
@@ -186,20 +184,23 @@ public class ConsumerTests extends BaseTest {
     @Severity(SeverityLevel.NORMAL)
     void testMaxPollRecords() {
         String topic = createTestTopic();
-        
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         // Send many messages
         int totalMessages = 100;
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, totalMessages);
         producerManager.sendBatch(messages);
         producerManager.flush();
         AsyncTestHelper.waitFor(2);
-        
-        // Initialize consumer
-        consumerManager.initConsumer(topic);
-        
+
         // Poll once - should respect max.poll.records (default 500)
         List<ConsumerRecordDto> firstPoll = consumerManager.poll(1);
-        
+
         // Should get some records but not necessarily all
         assertThat(firstPoll.size()).isLessThanOrEqualTo(500);
     }
@@ -227,17 +228,20 @@ public class ConsumerTests extends BaseTest {
     @Severity(SeverityLevel.CRITICAL)
     void testConsumerSessionTimeout() {
         String topic = createTestTopic();
-        
-        // Initialize consumer
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
         consumerManager.initConsumer(topic);
-        
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         // Send messages
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 10);
         producerManager.sendBatch(messages);
         producerManager.flush();
-        
+
         // Should still be able to poll
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, 10);
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, 10);
         assertThat(records.size()).isGreaterThan(0);
     }
 
@@ -247,23 +251,27 @@ public class ConsumerTests extends BaseTest {
     @Severity(SeverityLevel.NORMAL)
     void testConsumerHeartbeat() {
         String topic = createTestTopic();
-        
-        // Initialize consumer
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
         consumerManager.initConsumer(topic);
-        
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         // Send messages
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 10);
         producerManager.sendBatch(messages);
-        producerManager.flush();AsyncTestHelper.waitFor(2); // Wait for messages to be available
-        
+        producerManager.flush();
+        AsyncTestHelper.waitFor(2); // Wait for messages to be available
+
         // Poll multiple times - heartbeats should be sent automatically
-        // Collect all messages
         int totalMessages = 0;
         for (int i = 0; i < 5; i++) {
             List<ConsumerRecordDto> batch = consumerManager.poll(2);
-            totalMessages += batch.size();AsyncTestHelper.waitForMillis(500);
+            totalMessages += batch.size();
+            AsyncTestHelper.waitForMillis(500);
         }
-        
+
         // Should have received messages (consumer is still in group and receiving heartbeats)
         assertThat(totalMessages).isGreaterThan(0);
     }
@@ -274,19 +282,22 @@ public class ConsumerTests extends BaseTest {
     @Severity(SeverityLevel.NORMAL)
     void testManualPartitionAssignment() {
         String topic = createTestTopic(2); // 2 partitions (Aiven limit)
-        
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         // Send messages
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 15);
         producerManager.sendBatch(messages);
         producerManager.flush();
         AsyncTestHelper.waitFor(2);
-        
-        // Initialize consumer (will subscribe to all partitions)
-        consumerManager.initConsumer(topic);
-        
+
         // Poll messages
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 10, 15);
-        
+        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, 15);
+
         // Should get messages from assigned partitions
         assertThat(records.size()).isGreaterThan(0);
     }
@@ -329,19 +340,22 @@ public class ConsumerTests extends BaseTest {
     @Severity(SeverityLevel.NORMAL)
     void testConsumerLagMetrics() {
         String topic = createTestTopic();
-        
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         // Send messages
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 50);
         producerManager.sendBatch(messages);
         producerManager.flush();
         AsyncTestHelper.waitFor(2);
-        
-        // Initialize consumer
-        consumerManager.initConsumer(topic);
-        
+
         // Consumer has lag (messages waiting to be consumed)
-        List<ConsumerRecordDto> consumed = AsyncTestHelper.pollWithRetry(consumerManager, 15, 50);
-        
+        List<ConsumerRecordDto> consumed = AsyncTestHelper.pollWithRetry(consumerManager, 30, 50);
+
         // After consuming, lag should be reduced
         assertThat(consumed.size()).isGreaterThan(0);
         assertThat(consumed.size()).isLessThanOrEqualTo(50);

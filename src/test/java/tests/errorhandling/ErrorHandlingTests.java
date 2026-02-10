@@ -59,20 +59,23 @@ public class ErrorHandlingTests extends BaseTest {
     @Tag("error-handling")
     void testDeserializationError() {
         String topic = createTestTopic();
-        
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         // Send valid messages
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 5);
         producerManager.sendBatch(messages);
         producerManager.flush();
-
         AsyncTestHelper.waitFor(2);
-        
+
         // Try to consume - should handle any deserialization issues gracefully
-        consumerManager.initConsumer(topic);
         consumerManager.poll(3);
-        
+
         // The fact that we got here without crashing means deserialization worked
-        // or was handled gracefully
         assertThat(consumerManager).isNotNull();
     }
 

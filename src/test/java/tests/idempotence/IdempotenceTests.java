@@ -32,24 +32,24 @@ public class IdempotenceTests extends BaseTest {
     void testIdempotentProducer() {
         String topic = createTestTopic();
         int messageCount = 100;
-        
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, messageCount);
         producerManager.sendBatch(messages);
         producerManager.flush();
-        AsyncTestHelper.waitFor(5);
-         // Wait for messages
-        
-        consumerManager.initConsumer(topic);
-        
-        // Use AsyncTestHelper.pollWithRetry instead of await()
+        AsyncTestHelper.waitFor(3);
+
         List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 120, messageCount);
-        
+
         log.info("TC-016: Received {} of {} expected messages", records.size(), messageCount);
-        
-        // In cloud, accept at least half
+
         assertThat(records.size()).isGreaterThanOrEqualTo(messageCount / 2);
-        
-        // Verify no duplicate offsets in what we got
+
         Set<Long> offsets = new HashSet<>();
         for (ConsumerRecordDto record : records) {
             assertThat(offsets.add(record.getOffset()))
@@ -64,25 +64,28 @@ public class IdempotenceTests extends BaseTest {
     @Severity(SeverityLevel.CRITICAL)
     void testDuplicateDetectionByMessageId() {
         String topic = createTestTopic();
-        
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         KafkaMessageDto message = TestDataGenerator.generateMessage(topic);
         String messageId = message.getMessageId();
-        
+
         // Send same message twice
         producerManager.sendSync(message);
         producerManager.sendSync(message);
         producerManager.flush();
-        
-        consumerManager.initConsumer(topic);
-        
-        // Use AsyncTestHelper.pollWithRetry with longer timeout
+
         List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, 2);
         assertThat(records).hasSize(2);
-        
+
         // Both should have same message-id
         String id1 = records.get(0).getHeaders().get("message-id");
         String id2 = records.get(1).getHeaders().get("message-id");
-        
+
         assertThat(id1).isEqualTo(id2).isEqualTo(messageId);
     }
 
@@ -93,33 +96,31 @@ public class IdempotenceTests extends BaseTest {
     @Tag("idempotence")
     void testExactlyOnceSemantics() {
         String topic = createTestTopic();
-        
-        // Send messages with idempotent producer (enabled by default in modern Kafka)
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         int messageCount = 10;
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, messageCount);
-        
-        // Add unique IDs to track duplicates
+
         for (int i = 0; i < messages.size(); i++) {
             messages.get(i).addHeader("unique-id", "msg-" + i);
         }
-        
-        // Send all messages
+
         producerManager.sendBatch(messages);
         producerManager.flush();
         AsyncTestHelper.waitFor(2);
-        
-        // Consume and check for duplicates
-        consumerManager.initConsumer(topic);
-        
+
         List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount);
-        
-        // Count unique message IDs
+
         long uniqueCount = records.stream()
                 .map(r -> r.getHeaders().get("unique-id"))
                 .distinct()
                 .count();
-        
-        // With idempotence, should have exactly messageCount unique messages
+
         assertThat(uniqueCount).isEqualTo(messageCount);
         assertThat(records.size()).isGreaterThanOrEqualTo(messageCount);
     }
@@ -176,37 +177,35 @@ public class IdempotenceTests extends BaseTest {
     @Tag("idempotence")
     void testProducerIdempotence() {
         String topic = createTestTopic();
-        
-        // Send messages with idempotent producer (default enabled)
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         int messageCount = 50;
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, messageCount);
-        
-        // Add unique identifiers
+
         for (int i = 0; i < messages.size(); i++) {
             messages.get(i).addHeader("unique-id", "msg-" + i);
             messages.get(i).addHeader("sequence", String.valueOf(i));
         }
-        
-        // Send batch
+
         producerManager.sendBatch(messages);
         producerManager.flush();
         AsyncTestHelper.waitFor(2);
-        
-        // Consume and verify no duplicates
-        consumerManager.initConsumer(topic);
-        
+
         List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount);
-        
-        // Count unique messages by unique-id
+
         long uniqueCount = records.stream()
                 .map(r -> r.getHeaders().get("unique-id"))
                 .distinct()
                 .count();
-        
-        // With idempotence, should have exactly messageCount unique messages
+
         assertThat(uniqueCount).isEqualTo(messageCount);
         assertThat(records.size()).isGreaterThanOrEqualTo(messageCount);
-        
+
         log.info("Idempotent producer: {} unique messages out of {} total", uniqueCount, records.size());
     }
 
@@ -217,11 +216,16 @@ public class IdempotenceTests extends BaseTest {
     @Tag("idempotence")
     void testNoDuplicatesOnRetry() {
         String topic = createTestTopic();
-        
-        // Send messages that might be retried
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         int messageCount = 30;
         Set<String> sentMessageIds = new HashSet<>();
-        
+
         for (int i = 0; i < messageCount; i++) {
             KafkaMessageDto message = TestDataGenerator.generateMessage(topic);
             String uniqueId = "retry-msg-" + i;
@@ -229,27 +233,21 @@ public class IdempotenceTests extends BaseTest {
             sentMessageIds.add(uniqueId);
             producerManager.sendSync(message);
         }
-        
-        producerManager.flush();
 
+        producerManager.flush();
         AsyncTestHelper.waitFor(2);
-        
-        // Consume all messages
-        consumerManager.initConsumer(topic);
-        
+
         List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount);
-        
-        // Extract unique IDs from consumed messages
+
         Set<String> receivedMessageIds = new HashSet<>();
         for (ConsumerRecordDto record : records) {
             String uniqueId = record.getHeaders().get("unique-id");
             receivedMessageIds.add(uniqueId);
         }
-        
-        // Should receive all sent messages without duplicates
+
         assertThat(receivedMessageIds).containsAll(sentMessageIds);
         assertThat(receivedMessageIds.size()).isEqualTo(sentMessageIds.size());
-        
+
         log.info("Sent {} messages, received {} unique messages", messageCount, receivedMessageIds.size());
     }
 
@@ -261,11 +259,16 @@ public class IdempotenceTests extends BaseTest {
     @Tag("idempotence")
     void testMessageOrderingInPartition() {
         String topic = createTestTopic();
-        
-        // Send messages with same key (will go to same partition)
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         String key = "order-test-key";
         int messageCount = 20;
-        
+
         List<KafkaMessageDto> messages = new java.util.ArrayList<>();
         for (int i = 0; i < messageCount; i++) {
             KafkaMessageDto message = KafkaMessageDto.builder()
@@ -276,30 +279,24 @@ public class IdempotenceTests extends BaseTest {
             message.addHeader("sequence", String.valueOf(i));
             messages.add(message);
         }
-        
-        // Send in order
+
         producerManager.sendBatch(messages);
         producerManager.flush();
         AsyncTestHelper.waitFor(2);
-        
-        // Consume and verify order
-        consumerManager.initConsumer(topic);
-        
+
         List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount);
         assertThat(records).hasSize(messageCount);
-        
-        // All messages should be in same partition
+
         Integer partition = records.get(0).getPartition();
         for (ConsumerRecordDto record : records) {
             assertThat(record.getPartition()).isEqualTo(partition);
         }
-        
-        // Verify sequential order by sequence header
+
         for (int i = 0; i < records.size(); i++) {
             String sequence = records.get(i).getHeaders().get("sequence");
             assertThat(sequence).isEqualTo(String.valueOf(i));
         }
-        
+
         log.info("All {} messages maintained order in partition {}", messageCount, partition);
     }
 }

@@ -33,47 +33,47 @@ public class ConsumerGroupTests extends BaseTest {
     @Tag("consumer-group")
     void testConsumerGroupRebalance() {
         String topic = createTestTopic(2); // 2 partitions (Aiven limit)
-        
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         // Send messages
         int messageCount = 30;
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, messageCount);
         producerManager.sendBatch(messages);
         producerManager.flush();
         AsyncTestHelper.waitFor(2);
-        
-        // Initialize first consumer (will get all partitions)
-        consumerManager.initConsumer(topic);
-        consumerManager.poll(3); // Allow rebalance
-        
+
         // Consume messages
         List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount);
-        
-        log.info("Consumer consumed {} messages from {} partitions", 
+
+        log.info("Consumer consumed {} messages from {} partitions",
                 records.size(),
                 records.stream().map(ConsumerRecordDto::getPartition).distinct().count());
-        
-        // Should get messages from multiple partitions
+
         long distinctPartitions = records.stream()
                 .map(ConsumerRecordDto::getPartition)
                 .distinct()
                 .count();
-        
+
         assertThat(distinctPartitions).isGreaterThan(0);
         assertThat(records.size()).isGreaterThan(0);
-        
+
         // Close consumer to trigger rebalance
         consumerManager.close();
-        
+
         // Create new consumer - will trigger rebalance again
         consumerManager.initConsumer(topic);
-        consumerManager.poll(3);
-        
-        // Should be able to continue consuming
+        AsyncTestHelper.waitFor(5);
+        consumerManager.poll(2);
+
         List<ConsumerRecordDto> moreRecords = consumerManager.poll(2);
-        
+
         log.info("After rebalance, new consumer is ready (received {} immediate messages)", moreRecords.size());
-        
-        // Test passes if rebalance completed successfully
+
         assertThat(consumerManager).isNotNull();
     }
 }

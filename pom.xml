@@ -42,6 +42,7 @@
         <!-- Test Execution Parameters -->
         <thread.count>1</thread.count>
         <test.groups></test.groups>
+
     </properties>
 
     <dependencies>
@@ -144,18 +145,6 @@
 
     <build>
         <plugins>
-            <plugin>
-                <groupId>org.owasp</groupId>
-                <artifactId>dependency-check-maven</artifactId>
-                <version>9.0.10</version>
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>check</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
             <!-- Maven Compiler Plugin -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -335,6 +324,44 @@
                                 <junit.jupiter.execution.parallel.config.fixed.max-pool-size>${thread.count}</junit.jupiter.execution.parallel.config.fixed.max-pool-size>
                             </systemPropertyVariables>
                         </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- ═══════════════════════════════════════════════════════
+             Security profile: mvn verify -P security-check -DnvdApiKey=YOUR_KEY
+             Получить API ключ: https://nvd.nist.gov/developers/request-an-api-key
+             ═══════════════════════════════════════════════════════ -->
+        <profile>
+            <id>security-check</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.owasp</groupId>
+                        <artifactId>dependency-check-maven</artifactId>
+                        <version>9.0.10</version>
+                        <configuration>
+                            <!-- Передавать ключ: -DnvdApiKey=YOUR_REAL_KEY -->
+                            <!--suppress UnresolvedMavenProperty -->
+                            <nvdApiKey>${nvdApiKey}</nvdApiKey>
+                            <!-- Задержка между API запросами (мс) — увеличь при 403 ошибках -->
+                            <nvdApiDelay>4000</nvdApiDelay>
+                            <!-- Падать при CVSS >= 7 (высокий и критический) -->
+                            <failBuildOnCVSS>7</failBuildOnCVSS>
+                            <!-- HTML + JSON отчёт -->
+                            <formats>
+                                <format>HTML</format>
+                                <format>JSON</format>
+                            </formats>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <goals>
+                                    <goal>check</goal>
+                                </goals>
+                            </execution>
+                        </executions>
                     </plugin>
                 </plugins>
             </build>

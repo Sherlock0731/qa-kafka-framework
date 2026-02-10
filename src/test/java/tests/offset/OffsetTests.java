@@ -29,22 +29,23 @@ public class OffsetTests extends BaseTest {
     @Tag("smoke")
     void testManualSyncCommit() {
         String topic = createTestTopic();
-        
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         // Send messages
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 10);
         producerManager.sendBatch(messages);
         producerManager.flush();
-        
-        consumerManager.initConsumer(topic);
-        
-        // Use AsyncTestHelper.pollWithRetry instead of await()
+
         List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 60, 1);
         assertThat(records).isNotEmpty();
-        
-        // Process messages
+
         log.info("Processing {} messages", records.size());
-        
-        // Manual commit
+
         consumerManager.commitSync();
         log.info("Offsets committed synchronously");
     }
@@ -55,24 +56,23 @@ public class OffsetTests extends BaseTest {
     @Severity(SeverityLevel.NORMAL)
     void testCommitSpecificOffset() {
         String topic = createTestTopic();
-        
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 10);
         producerManager.sendBatch(messages);
         producerManager.flush();
-        
-        consumerManager.initConsumer(topic);
-        
-        // Use AsyncTestHelper.pollWithRetry to get all records
+
         List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 60, 10);
         assertThat(records).hasSize(10);
-        
-        // Commit offset 5 (index 4)
+
         ConsumerRecordDto fifthRecord = records.get(4);
         consumerManager.commitOffset(topic, fifthRecord.getPartition(), fifthRecord.getOffset());
-        
-        // Position after committing offset 4 should be 5 (next to read)
-        // But since we already polled all messages, position will be at end (10)
-        // This test verifies commitOffset works, position will be at last polled
+
         long position = consumerManager.getPosition(topic, fifthRecord.getPartition());
         assertThat(position).isGreaterThanOrEqualTo(fifthRecord.getOffset() + 1);
     }
@@ -84,33 +84,32 @@ public class OffsetTests extends BaseTest {
     @Tag("offset")
     void testAutoCommitOffset() {
         String topic = createTestTopic();
-        
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         // Send messages
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 15);
         producerManager.sendBatch(messages);
         producerManager.flush();
         AsyncTestHelper.waitFor(2);
-        
-        // Initialize consumer with auto-commit enabled (default)
-        consumerManager.initConsumer(topic);
-        
-        // Consume messages
+
         List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 60, 15);
         assertThat(records).hasSize(15);
-        
+
         // Close and reopen consumer - should start after committed offset
         consumerManager.close();
-        AsyncTestHelper.waitFor(2); // Wait for graceful close
-        
+        AsyncTestHelper.waitFor(2);
+
         consumerManager.initConsumer(topic);
-        
-        // Should not get the same messages again (offset was auto-committed)
+
         List<ConsumerRecordDto> newRecords = consumerManager.poll(2);
-        
+
         log.info("TC-018: After reopen, got {} records (should be < 15)", newRecords.size());
-        
-        // Either empty or new messages, but not all 15 again
-        // Changed to <= because boundary case (exactly 15) is edge case
+
         assertThat(newRecords.size()).isLessThanOrEqualTo(15);
     }
 
@@ -121,20 +120,22 @@ public class OffsetTests extends BaseTest {
     @Tag("offset")
     void testOffsetResetStrategy() {
         String topic = createTestTopic();
-        
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         // Send messages
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 20);
         producerManager.sendBatch(messages);
         producerManager.flush();
         AsyncTestHelper.waitFor(2);
-        
-        // Create consumer with unique group to trigger earliest reset
-        consumerManager.close();
-        consumerManager.initConsumer(topic);
-        
+
         // Should read from earliest (beginning) due to auto.offset.reset=earliest
         List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 60, 20);
-        
+
         assertThat(records.size()).isGreaterThan(0);
         assertThat(records.size()).isLessThanOrEqualTo(20);
     }
@@ -147,33 +148,31 @@ public class OffsetTests extends BaseTest {
     @Tag("consumer-group")
     void testOffsetCommitOnRebalance() {
         String topic = createTestTopic(2); // 2 partitions
-        
+
+        // Initialize consumer BEFORE producing to avoid rebalance timing issues
+        consumerManager.initConsumer(topic);
+        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
+        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
+        AsyncTestHelper.waitFor(1);
+
         // Send messages
         List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 30);
         producerManager.sendBatch(messages);
         producerManager.flush();
-        AsyncTestHelper.waitFor(3); // Increased from 2s to 3s
-        
-        // Initialize first consumer
-        consumerManager.initConsumer(topic);
-        
-        // Consume some messages
+        AsyncTestHelper.waitFor(3);
+
         List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 60, 10);
         assertThat(records.size()).isGreaterThan(0);
-        
-        // Commit before closing
+
         consumerManager.commitSync();
-        
-        // Close consumer - should trigger rebalance
+
         consumerManager.close();
-        AsyncTestHelper.waitFor(2); // Wait for rebalance to complete
-        
-        // Create new consumer - should continue from committed offset
+        AsyncTestHelper.waitFor(2);
+
         consumerManager.initConsumer(topic);
-        
+
         List<ConsumerRecordDto> newRecords = AsyncTestHelper.pollWithRetry(consumerManager, 60, 20);
-        
-        // Should get remaining messages or at least something
+
         assertThat(records.size() + newRecords.size()).isGreaterThanOrEqualTo(records.size());
     }
 }
