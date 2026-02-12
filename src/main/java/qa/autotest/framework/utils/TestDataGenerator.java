@@ -14,18 +14,57 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Test Data Generator
- * Generates test data for Kafka messages with thread-safe parallel execution support
+ * Utility class for generating test data for Kafka messages.
+ * 
+ * <p>Provides thread-safe methods for creating test messages with unique identifiers
+ * and metadata. All methods are static and support parallel test execution.</p>
+ * 
+ * <p><b>Thread Safety:</b> All methods are thread-safe. Each invocation generates
+ * unique UUIDs and captures current thread context.</p>
+ * 
+ * <p><b>Usage Example:</b></p>
+ * <pre>{@code
+ * // Single message
+ * KafkaMessageDto message = TestDataGenerator.generateMessage("my-topic");
+ * 
+ * // Message with specific key
+ * KafkaMessageDto keyedMessage = TestDataGenerator.generateMessageWithKey("topic", "user-123");
+ * 
+ * // Batch of messages
+ * List<KafkaMessageDto> batch = TestDataGenerator.generateMessages("topic", 100);
+ * }</pre>
+ * 
+ * @see KafkaMessageDto
+ * @since 1.0
  */
 @Slf4j
 public class TestDataGenerator {
-    
+
+    /**
+     * ObjectMapper for JSON serialization, configured with JavaTimeModule.
+     * Thread-safe after configuration.
+     */
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
             .registerModule(new JavaTimeModule());
-    
+
     /**
-     * Generates a unique message for testing
-     * Thread-safe: uses per-thread isolation via thread name in headers
+     * Private constructor to prevent instantiation of utility class.
+     * 
+     * @throws UnsupportedOperationException always
+     */
+    private TestDataGenerator() {
+        throw new UnsupportedOperationException("Utility class");
+    }
+
+    /**
+     * Generates a test message with random key.
+     * 
+     * <p>Creates a message with unique ID, random key, JSON payload, and standard headers.
+     * Thread-safe for parallel execution.</p>
+     * 
+     * @param topic the target Kafka topic
+     * @return a new message with unique identifiers
+     * @throws NullPointerException if topic is null
      */
     public static KafkaMessageDto generateMessage(String topic) {
         return KafkaMessageDto.builder()
@@ -37,10 +76,17 @@ public class TestDataGenerator {
                 .headers(generateHeaders())
                 .build();
     }
-    
+
     /**
-     * Generates message with specific key
-     * Thread-safe: key provided by caller ensures deterministic partitioning per test
+     * Generates a test message with specific key for partition routing.
+     * 
+     * <p>Messages with the same key are routed to the same partition, maintaining order.
+     * Use this for testing partition routing and message ordering.</p>
+     * 
+     * @param topic the target Kafka topic
+     * @param key the message key for partition routing (can be null)
+     * @return a new message with the specified key
+     * @throws NullPointerException if topic is null
      */
     public static KafkaMessageDto generateMessageWithKey(String topic, String key) {
         return KafkaMessageDto.builder()
@@ -52,46 +98,67 @@ public class TestDataGenerator {
                 .headers(generateHeaders())
                 .build();
     }
-    
+
     /**
-     * Generates multiple messages
-     * Thread-safe: each invocation produces isolated UUIDs
+     * Generates multiple test messages in a batch.
+     * 
+     * <p>Each message has unique identifiers. All messages are loaded into memory.
+     * For large batches (&gt;10,000), consider memory constraints.</p>
+     * 
+     * @param topic the target Kafka topic
+     * @param count the number of messages to generate (must be &gt;= 0)
+     * @return a list of unique messages (empty if count is 0)
+     * @throws NullPointerException if topic is null
+     * @throws IllegalArgumentException if count is negative
      */
     public static List<KafkaMessageDto> generateMessages(String topic, int count) {
-        List<KafkaMessageDto> messages = new ArrayList<>();
+        if (count < 0) {
+            throw new IllegalArgumentException("Count must be non-negative, got: " + count);
+        }
+
+        List<KafkaMessageDto> messages = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {
             messages.add(generateMessage(topic));
         }
         return messages;
     }
-    
+
     /**
-     * Generates JSON value with thread context
+     * Generates JSON payload with test metadata.
+     * 
+     * <p>Creates JSON with id, timestamp, payload, and thread name.
+     * Returns error JSON if serialization fails.</p>
+     * 
+     * @return JSON string with test data
      */
     private static String generateJsonValue() {
         Map<String, Object> data = new HashMap<>();
         data.put("id", UUID.randomUUID().toString());
         data.put("timestamp", Instant.now().toString());
         data.put("payload", "test-data-" + System.currentTimeMillis());
-        data.put("thread", Thread.currentThread().getName()); // Parallel execution tracking
+        data.put("thread", Thread.currentThread().getName());
         
         try {
             return OBJECT_MAPPER.writeValueAsString(data);
         } catch (JsonProcessingException e) {
             log.error("Failed to generate JSON: {}", e.getMessage());
-            return "{\\\"error\\\":\\\"failed to generate\\\"}";
+            return "{\"error\":\"failed to generate\"}";
         }
     }
-    
+
     /**
-     * Generates standard headers with thread isolation
+     * Generates standard headers with tracing metadata.
+     * 
+     * <p>Includes trace-id (UUID), thread-id (thread name), and source identifier.
+     * Headers enable distributed tracing and parallel test debugging.</p>
+     * 
+     * @return map of standard headers
      */
     private static Map<String, String> generateHeaders() {
         Map<String, String> headers = new HashMap<>();
         String traceId = UUID.randomUUID().toString();
         String threadName = Thread.currentThread().getName();
         
-        // Add thread context for parallel test isolation and debugging
         headers.put("trace-id", traceId);
         headers.put("thread-id", threadName);
         headers.put("source", "qa-test-framework");
