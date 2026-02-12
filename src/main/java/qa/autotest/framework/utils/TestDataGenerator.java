@@ -15,7 +15,7 @@ import java.util.UUID;
 
 /**
  * Test Data Generator
- * Generates test data for Kafka messages
+ * Generates test data for Kafka messages with thread-safe parallel execution support
  */
 @Slf4j
 public class TestDataGenerator {
@@ -25,6 +25,7 @@ public class TestDataGenerator {
     
     /**
      * Generates a unique message for testing
+     * Thread-safe: uses per-thread isolation via thread name in headers
      */
     public static KafkaMessageDto generateMessage(String topic) {
         return KafkaMessageDto.builder()
@@ -39,6 +40,7 @@ public class TestDataGenerator {
     
     /**
      * Generates message with specific key
+     * Thread-safe: key provided by caller ensures deterministic partitioning per test
      */
     public static KafkaMessageDto generateMessageWithKey(String topic, String key) {
         return KafkaMessageDto.builder()
@@ -53,6 +55,7 @@ public class TestDataGenerator {
     
     /**
      * Generates multiple messages
+     * Thread-safe: each invocation produces isolated UUIDs
      */
     public static List<KafkaMessageDto> generateMessages(String topic, int count) {
         List<KafkaMessageDto> messages = new ArrayList<>();
@@ -63,29 +66,36 @@ public class TestDataGenerator {
     }
     
     /**
-     * Generates JSON value
+     * Generates JSON value with thread context
      */
     private static String generateJsonValue() {
         Map<String, Object> data = new HashMap<>();
         data.put("id", UUID.randomUUID().toString());
         data.put("timestamp", Instant.now().toString());
         data.put("payload", "test-data-" + System.currentTimeMillis());
+        data.put("thread", Thread.currentThread().getName()); // Parallel execution tracking
         
         try {
             return OBJECT_MAPPER.writeValueAsString(data);
         } catch (JsonProcessingException e) {
             log.error("Failed to generate JSON: {}", e.getMessage());
-            return "{\"error\":\"failed to generate\"}";
+            return "{\\\"error\\\":\\\"failed to generate\\\"}";
         }
     }
     
     /**
-     * Generates standard headers
+     * Generates standard headers with thread isolation
      */
     private static Map<String, String> generateHeaders() {
         Map<String, String> headers = new HashMap<>();
-        headers.put("trace-id", UUID.randomUUID().toString());
+        String traceId = UUID.randomUUID().toString();
+        String threadName = Thread.currentThread().getName();
+        
+        // Add thread context for parallel test isolation and debugging
+        headers.put("trace-id", traceId);
+        headers.put("thread-id", threadName);
         headers.put("source", "qa-test-framework");
+        
         return headers;
     }
 }
