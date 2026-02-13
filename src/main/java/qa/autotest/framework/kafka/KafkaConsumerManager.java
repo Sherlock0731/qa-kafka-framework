@@ -26,44 +26,16 @@ import java.util.UUID;
 /**
  * Thread-safe Kafka Consumer Manager
  * Manages Kafka consumer instances and message consumption operations
- *
- * <p><b>Thread Safety:</b> This class uses ThreadLocal to ensure each thread
- * gets its own KafkaConsumer instance. Consumers are lazily initialized when
- * {@link #initConsumer(String)} is called for the first time on each thread.</p>
- *
- * <p><b>Usage Pattern:</b>
- * <pre>
- * ConsumerManager manager = new ConsumerManager(config);
- * manager.initConsumer("my-topic");        // Must be called first
- * List&lt;Record&gt; records = manager.poll(5); // Then use
- * manager.close();                          // Finally cleanup
- * </pre>
- * </p>
  */
 @Slf4j
 public class KafkaConsumerManager implements AutoCloseable {
 
     private final KafkaConfig config;
-
-    /**
-     * Thread-local consumer instance. Each thread gets its own consumer.
-     * Initialized lazily via {@link #initConsumer(String)}.
-     *
-     * <p><b>WARNING:</b> Calling {@link #getConsumer()} before initialization
-     * will throw {@link IllegalStateException}.</p>
-     */
     private final ThreadLocal<KafkaConsumer<String, String>> consumerThreadLocal;
-
-    /**
-     * Thread-local group ID. Tracks which consumer group ID is used by
-     * the consumer on this thread.
-     */
     private final ThreadLocal<String> groupIdThreadLocal;
 
     public KafkaConsumerManager(KafkaConfig config) {
         this.config = config;
-        // ThreadLocal initialized without initial value - lazy initialization pattern
-        // Values are set explicitly in initConsumer() to ensure proper setup
         this.consumerThreadLocal = new ThreadLocal<>();
         this.groupIdThreadLocal = new ThreadLocal<>();
     }
@@ -75,8 +47,8 @@ public class KafkaConsumerManager implements AutoCloseable {
         log.debug("Creating Kafka consumer on thread: {} with group ID: {}",
                 Thread.currentThread().getName(), groupId);
 
-        Properties props = new Properties();
-        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, config.kafkaBootstrapServers());
+        // Base properties
+        Properties props = KafkaPropertiesBuilder.buildBaseProperties(config);
         props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
@@ -89,20 +61,8 @@ public class KafkaConsumerManager implements AutoCloseable {
         props.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, config.consumerFetchMinBytes());
         props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, config.consumerFetchMaxWaitMs());
 
-        // SSL configuration
-        if ("SSL".equals(config.securityProtocol()) || "SASL_SSL".equals(config.securityProtocol())) {
-            props.put("security.protocol", config.securityProtocol());
-            props.put("ssl.truststore.location", config.sslTruststoreLocation());
-            props.put("ssl.truststore.password", config.sslTruststorePassword());
-            props.put("ssl.truststore.type", config.sslTruststoreType());
-            props.put("ssl.keystore.location", config.sslKeystoreLocation());
-            props.put("ssl.keystore.password", config.sslKeyPassword());
-            props.put("ssl.keystore.type", config.sslKeystoreType());
-
-            if (config.sslKeyPassword() != null) {
-                props.put("ssl.key.password", config.sslKeyPassword());
-            }
-        }
+        // Security configuration (SSL/TLS)
+        KafkaPropertiesBuilder.configureSecurity(props, config);
 
         return new KafkaConsumer<>(props);
     }
@@ -110,12 +70,8 @@ public class KafkaConsumerManager implements AutoCloseable {
     /**
      * Initializes consumer for the current thread with unique group ID
      *
-     * <p><b>IMPORTANT:</b> This method MUST be called before any other consumer
-     * operations (poll, commit, etc.) on each thread.</p>
-     *
      * @param topic Topic to subscribe to
-     * @return Unique group ID assigned to this consumer
-     * @throws IllegalStateException if consumer is already initialized on this thread
+     * @return Unique group ID
      */
     @Step("Initialize consumer for topic: {topic}")
     public String initConsumer(String topic) {
@@ -126,23 +82,12 @@ public class KafkaConsumerManager implements AutoCloseable {
     /**
      * Initializes consumer for the current thread with specified group ID
      *
-     * <p><b>IMPORTANT:</b> This method MUST be called before any other consumer
-     * operations (poll, commit, etc.) on each thread.</p>
-     *
      * @param topic Topic to subscribe to
      * @param groupId Consumer group ID
      * @return Group ID
-     * @throws IllegalStateException if consumer is already initialized on this thread
      */
     @Step("Initialize consumer for topic: {topic} with group ID: {groupId}")
     public String initConsumer(String topic, String groupId) {
-        // Check if consumer already exists on this thread
-        if (consumerThreadLocal.get() != null) {
-            log.warn("Consumer already initialized on thread {}. Closing existing consumer.",
-                    Thread.currentThread().getName());
-            close(); // Clean up existing consumer first
-        }
-
         KafkaConsumer<String, String> consumer = createConsumer(groupId);
         consumer.subscribe(Collections.singletonList(topic));
         consumerThreadLocal.set(consumer);
@@ -154,21 +99,10 @@ public class KafkaConsumerManager implements AutoCloseable {
 
     /**
      * Subscribes consumer to multiple topics
-     *
-     * @param topics List of topics to subscribe to
-     * @return Group ID assigned to this consumer
      */
     @Step("Subscribe to topics: {topics}")
     public String subscribeToTopics(List<String> topics) {
         String groupId = config.consumerGroupIdBase() + "-" + UUID.randomUUID();
-
-        // Check if consumer already exists on this thread
-        if (consumerThreadLocal.get() != null) {
-            log.warn("Consumer already initialized on thread {}. Closing existing consumer.",
-                    Thread.currentThread().getName());
-            close();
-        }
-
         KafkaConsumer<String, String> consumer = createConsumer(groupId);
         consumer.subscribe(topics);
         consumerThreadLocal.set(consumer);
@@ -180,16 +114,12 @@ public class KafkaConsumerManager implements AutoCloseable {
 
     /**
      * Gets the consumer for the current thread
-     *
-     * @return KafkaConsumer instance for this thread
-     * @throws IllegalStateException if consumer not initialized (call initConsumer first)
      */
     private KafkaConsumer<String, String> getConsumer() {
         KafkaConsumer<String, String> consumer = consumerThreadLocal.get();
         if (consumer == null) {
-            throw new IllegalStateException(
-                    "Consumer not initialized for thread: " + Thread.currentThread().getName() +
-                            ". Call initConsumer() first before using consumer operations.");
+            throw new IllegalStateException("Consumer not initialized for thread: " +
+                    Thread.currentThread().getName());
         }
         return consumer;
     }
@@ -199,7 +129,6 @@ public class KafkaConsumerManager implements AutoCloseable {
      *
      * @param timeoutSeconds Poll timeout in seconds
      * @return List of consumed records
-     * @throws IllegalStateException if consumer not initialized
      */
     @Step("Poll messages with timeout: {timeoutSeconds}s")
     public List<ConsumerRecordDto> poll(int timeoutSeconds) {
@@ -240,8 +169,6 @@ public class KafkaConsumerManager implements AutoCloseable {
 
     /**
      * Commits offsets synchronously
-     *
-     * @throws IllegalStateException if consumer not initialized
      */
     @Step("Commit offsets sync")
     public void commitSync() {
@@ -251,8 +178,6 @@ public class KafkaConsumerManager implements AutoCloseable {
 
     /**
      * Commits offsets asynchronously
-     *
-     * @throws IllegalStateException if consumer not initialized
      */
     @Step("Commit offsets async")
     public void commitAsync() {
@@ -268,11 +193,6 @@ public class KafkaConsumerManager implements AutoCloseable {
 
     /**
      * Commits specific offset for a partition
-     *
-     * @param topic Topic name
-     * @param partition Partition number
-     * @param offset Offset to commit
-     * @throws IllegalStateException if consumer not initialized
      */
     @Step("Commit offset for partition")
     public void commitOffset(String topic, int partition, long offset) {
@@ -286,9 +206,6 @@ public class KafkaConsumerManager implements AutoCloseable {
 
     /**
      * Seeks to beginning of partitions
-     *
-     * @param topic Topic name (unused but kept for API compatibility)
-     * @throws IllegalStateException if consumer not initialized
      */
     @Step("Seek to beginning")
     public void seekToBeginning(String topic) {
@@ -298,9 +215,6 @@ public class KafkaConsumerManager implements AutoCloseable {
 
     /**
      * Seeks to end of partitions
-     *
-     * @param topic Topic name (unused but kept for API compatibility)
-     * @throws IllegalStateException if consumer not initialized
      */
     @Step("Seek to end")
     public void seekToEnd(String topic) {
@@ -310,11 +224,6 @@ public class KafkaConsumerManager implements AutoCloseable {
 
     /**
      * Gets current position (offset) for a partition
-     *
-     * @param topic Topic name
-     * @param partition Partition number
-     * @return Current offset position
-     * @throws IllegalStateException if consumer not initialized
      */
     public long getPosition(String topic, int partition) {
         TopicPartition topicPartition = new TopicPartition(topic, partition);
@@ -343,13 +252,7 @@ public class KafkaConsumerManager implements AutoCloseable {
     }
 
     /**
-     * Closes the consumer for the current thread and removes ThreadLocal references.
-     *
-     * <p><b>Thread Safety:</b> This method only affects the consumer on the calling thread.
-     * Other threads' consumers are not affected.</p>
-     *
-     * <p><b>Cleanup:</b> Always calls {@link ThreadLocal#remove()} to prevent memory leaks
-     * in thread pool scenarios.</p>
+     * Closes the consumer for the current thread
      */
     @Override
     public void close() {
@@ -359,11 +262,7 @@ public class KafkaConsumerManager implements AutoCloseable {
                 log.debug("Closing consumer on thread: {}", Thread.currentThread().getName());
                 consumer.close();
             }
-        } catch (Exception e) {
-            log.error("Error closing consumer on thread {}: {}",
-                    Thread.currentThread().getName(), e.getMessage(), e);
         } finally {
-            // CRITICAL: Always remove ThreadLocal to prevent memory leaks
             consumerThreadLocal.remove();
             groupIdThreadLocal.remove();
         }
@@ -371,8 +270,6 @@ public class KafkaConsumerManager implements AutoCloseable {
 
     /**
      * Gets the group ID for the current thread
-     *
-     * @return Consumer group ID, or null if not initialized
      */
     public String getGroupId() {
         return groupIdThreadLocal.get();

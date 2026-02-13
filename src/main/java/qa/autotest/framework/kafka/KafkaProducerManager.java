@@ -24,23 +24,23 @@ import java.util.concurrent.Future;
  */
 @Slf4j
 public class KafkaProducerManager implements AutoCloseable {
-    
+
     private final KafkaConfig config;
     private final ThreadLocal<KafkaProducer<String, String>> producerThreadLocal;
-    
+
     public KafkaProducerManager(KafkaConfig config) {
         this.config = config;
         this.producerThreadLocal = ThreadLocal.withInitial(this::createProducer);
     }
-    
+
     /**
      * Creates a new Kafka producer with configuration
      */
     private KafkaProducer<String, String> createProducer() {
         log.debug("Creating Kafka producer on thread: {}", Thread.currentThread().getName());
-        
-        Properties props = new Properties();
-        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, config.kafkaBootstrapServers());
+
+        // Base properties
+        Properties props = KafkaPropertiesBuilder.buildBaseProperties(config);
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         props.put(ProducerConfig.ACKS_CONFIG, config.producerAcks());
@@ -50,35 +50,23 @@ public class KafkaProducerManager implements AutoCloseable {
         props.put(ProducerConfig.BATCH_SIZE_CONFIG, config.producerBatchSize());
         props.put(ProducerConfig.LINGER_MS_CONFIG, config.producerLingerMs());
         props.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, config.producerRequestTimeoutMs());
-        
-        // SSL configuration
-        if ("SSL".equals(config.securityProtocol()) || "SASL_SSL".equals(config.securityProtocol())) {
-            props.put("security.protocol", config.securityProtocol());
-            props.put("ssl.truststore.location", config.sslTruststoreLocation());
-            props.put("ssl.truststore.password", config.sslTruststorePassword());
-            props.put("ssl.truststore.type", config.sslTruststoreType());
-            props.put("ssl.keystore.location", config.sslKeystoreLocation());
-            props.put("ssl.keystore.password", config.sslKeyPassword());
-            props.put("ssl.keystore.type", config.sslKeystoreType());
-            
-            if (config.sslKeyPassword() != null) {
-                props.put("ssl.key.password", config.sslKeyPassword());
-            }
-        }
-        
+
+        // Security configuration (SSL/TLS)
+        KafkaPropertiesBuilder.configureSecurity(props, config);
+
         return new KafkaProducer<>(props);
     }
-    
+
     /**
      * Gets the producer for the current thread
      */
     private KafkaProducer<String, String> getProducer() {
         return producerThreadLocal.get();
     }
-    
+
     /**
      * Sends a message synchronously
-     * 
+     *
      * @param message Message to send
      * @return Record metadata with offset and partition
      */
@@ -86,29 +74,29 @@ public class KafkaProducerManager implements AutoCloseable {
     public RecordMetadata sendSync(KafkaMessageDto message) {
         try {
             ProducerRecord<String, String> record = createProducerRecord(message);
-            
-            log.info("Sending message sync to topic '{}' with key '{}': {}", 
+
+            log.info("Sending message sync to topic '{}' with key '{}': {}",
                     message.getTopic(), message.getKey(), message.getValue());
-            
+
             RecordMetadata metadata = getProducer().send(record).get();
-            
-            log.info("Message sent successfully to partition {} with offset {}", 
+
+            log.info("Message sent successfully to partition {} with offset {}",
                     metadata.partition(), metadata.offset());
-            
+
             // Update message with offset and partition
             message.setOffset(metadata.offset());
             message.setPartition(metadata.partition());
-            
+
             return metadata;
         } catch (Exception e) {
             log.error("Failed to send message sync: {}", e.getMessage(), e);
             throw new RuntimeException("Failed to send message sync", e);
         }
     }
-    
+
     /**
      * Sends a message asynchronously
-     * 
+     *
      * @param message Message to send
      * @return Future with record metadata
      */
@@ -116,15 +104,15 @@ public class KafkaProducerManager implements AutoCloseable {
     public Future<RecordMetadata> sendAsync(KafkaMessageDto message) {
         try {
             ProducerRecord<String, String> record = createProducerRecord(message);
-            
-            log.info("Sending message async to topic '{}' with key '{}': {}", 
+
+            log.info("Sending message async to topic '{}' with key '{}': {}",
                     message.getTopic(), message.getKey(), message.getValue());
-            
+
             return getProducer().send(record, (metadata, exception) -> {
                 if (exception != null) {
                     log.error("Failed to send message async: {}", exception.getMessage(), exception);
                 } else {
-                    log.info("Message sent successfully to partition {} with offset {}", 
+                    log.info("Message sent successfully to partition {} with offset {}",
                             metadata.partition(), metadata.offset());
                     message.setOffset(metadata.offset());
                     message.setPartition(metadata.partition());
@@ -135,10 +123,10 @@ public class KafkaProducerManager implements AutoCloseable {
             throw new RuntimeException("Failed to send message async", e);
         }
     }
-    
+
     /**
      * Sends multiple messages in batch
-     * 
+     *
      * @param messages List of messages to send
      * @return List of record metadata
      */
@@ -146,46 +134,46 @@ public class KafkaProducerManager implements AutoCloseable {
     public List<RecordMetadata> sendBatch(List<KafkaMessageDto> messages) {
         log.info("Sending batch of {} messages", messages.size());
         List<RecordMetadata> metadataList = new ArrayList<>();
-        
+
         for (KafkaMessageDto message : messages) {
             RecordMetadata metadata = sendSync(message);
             metadataList.add(metadata);
         }
-        
+
         log.info("Batch of {} messages sent successfully", metadataList.size());
         return metadataList;
     }
-    
+
     /**
      * Creates ProducerRecord from KafkaMessageDto
      */
     private ProducerRecord<String, String> createProducerRecord(KafkaMessageDto message) {
         List<Header> headers = new ArrayList<>();
-        
+
         // Add custom headers if present
         if (message.getHeaders() != null) {
-            message.getHeaders().forEach((key, value) -> 
+            message.getHeaders().forEach((key, value) ->
                     headers.add(new RecordHeader(key, value.getBytes(StandardCharsets.UTF_8))));
         }
-        
+
         // Add message ID header for idempotence
         if (message.getMessageId() != null) {
-            headers.add(new RecordHeader("message-id", 
+            headers.add(new RecordHeader("message-id",
                     message.getMessageId().getBytes(StandardCharsets.UTF_8)));
         }
-        
+
         // Add correlation ID if present
         if (message.getCorrelationId() != null) {
-            headers.add(new RecordHeader("correlation-id", 
+            headers.add(new RecordHeader("correlation-id",
                     message.getCorrelationId().getBytes(StandardCharsets.UTF_8)));
         }
-        
+
         // Add event type if present
         if (message.getEventType() != null) {
-            headers.add(new RecordHeader("event-type", 
+            headers.add(new RecordHeader("event-type",
                     message.getEventType().getBytes(StandardCharsets.UTF_8)));
         }
-        
+
         // Create record with or without partition
         if (message.getPartition() != null) {
             return new ProducerRecord<>(
@@ -207,7 +195,7 @@ public class KafkaProducerManager implements AutoCloseable {
             );
         }
     }
-    
+
     /**
      * Flushes all buffered messages
      */
@@ -216,7 +204,7 @@ public class KafkaProducerManager implements AutoCloseable {
         log.debug("Flushing producer");
         getProducer().flush();
     }
-    
+
     /**
      * Closes the producer for the current thread
      */
@@ -231,7 +219,7 @@ public class KafkaProducerManager implements AutoCloseable {
             producerThreadLocal.remove();
         }
     }
-    
+
     /**
      * Closes all producers (call at the end of test suite)
      */
