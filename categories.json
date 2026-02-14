@@ -1,86 +1,145 @@
 [
   {
-    "name": "Infrastructure Failures",
-    "description": "Tests failed due to network, broker, or cloud infrastructure issues",
-    "matchedStatuses": ["failed", "broken"],
-    "messageRegex": ".*(TimeoutException|NetworkClient|Disconnect|Connection.*timeout|socket.*timeout|Timed out waiting|Cancelled.*request).*"
+    "name": "Infrastructure: Kafka Network Timeout",
+    "matchedStatuses": ["broken", "failed"],
+    "messageRegex": ".*(timeout|timed out|TimeoutException).*kafka.*",
+    "traceRegex": ".*org\\.apache\\.kafka\\.common\\.errors\\.TimeoutException.*"
   },
   {
-    "name": "Producer Timeout",
-    "description": "Producer failed to send messages within delivery.timeout.ms",
-    "matchedStatuses": ["failed", "broken"],
-    "messageRegex": ".*(Expiring.*record.*has passed since batch creation|delivery.*timeout|Failed to send message sync).*"
-  },
-  {
-    "name": "Topic Creation Failures",
-    "description": "Failed to create or delete Kafka topics",
-    "matchedStatuses": ["failed", "broken"],
-    "messageRegex": ".*(Failed to create topic|Failed to delete topic|createTopics.*timed out).*"
-  },
-  {
-    "name": "Consumer Rebalance Issues",
-    "description": "Consumer group coordination and rebalancing failures",
-    "matchedStatuses": ["failed", "broken"],
-    "messageRegex": ".*(MemberIdRequiredException|RebalanceInProgressException|Consumer.*not initialized|Consumer group.*rebalance).*"
-  },
-  {
-    "name": "Serialization/Deserialization Errors",
-    "description": "Message serialization or deserialization failures",
-    "matchedStatuses": ["failed", "broken"],
-    "messageRegex": ".*(SerializationException|DeserializationException|JsonProcessingException|Failed to generate JSON).*"
-  },
-  {
-    "name": "Assertion Failures",
-    "description": "Test assertions did not meet expected conditions",
-    "matchedStatuses": ["failed"],
-    "messageRegex": ".*(AssertionError|expected.*but was|should.*but|Expecting actual).*"
-  },
-  {
-    "name": "Performance Threshold Violations",
-    "description": "Performance tests exceeded expected time or throughput limits",
-    "matchedStatuses": ["failed"],
-    "messageRegex": ".*(latency.*exceeded|throughput.*below|duration.*longer than|isLessThan.*seconds).*"
-  },
-  {
-    "name": "SSL/TLS Configuration Issues",
-    "description": "SSL certificate or keystore configuration errors",
-    "matchedStatuses": ["failed", "broken"],
-    "messageRegex": ".*(SSLException|ssl.*truststore|ssl.*keystore|certificate|SSL handshake).*"
-  },
-  {
-    "name": "Offset Management Failures",
-    "description": "Issues with offset commit, reset, or position tracking",
-    "matchedStatuses": ["failed", "broken"],
-    "messageRegex": ".*(OffsetOutOfRangeException|Failed to commit offset|offset.*reset|position.*invalid).*"
-  },
-  {
-    "name": "Transaction Failures",
-    "description": "Kafka transaction errors (commit, abort, coordination)",
-    "matchedStatuses": ["failed", "broken"],
-    "messageRegex": ".*(TransactionException|ProducerFencedException|transaction.*abort|transaction.*commit).*"
-  },
-  {
-    "name": "Flaky Tests",
-    "description": "Tests that passed on retry or show intermittent failures",
-    "matchedStatuses": ["failed"],
-    "traceRegex": ".*(pollWithRetry|AsyncTestHelper|waitFor|retry).*",
-    "messageRegex": ".*(transient|intermittent|cloud.*unstable|received.*expected).*"
-  },
-  {
-    "name": "Product Defects",
-    "description": "Legitimate bugs in the application under test",
-    "matchedStatuses": ["failed"],
-    "messageRegex": ".*(NullPointerException|IllegalStateException|IllegalArgumentException|ClassCastException).*"
-  },
-  {
-    "name": "Test Infrastructure",
-    "description": "Issues with test framework, BaseTest, or test utilities",
+    "name": "Infrastructure: Kafka Connection Refused",
     "matchedStatuses": ["broken"],
-    "traceRegex": ".*(BaseTest|TestDataGenerator|KafkaTestExecutionListener|AllureKafkaListener).*"
+    "messageRegex": ".*(connection refused|failed to connect|unable to connect).*",
+    "traceRegex": ".*(ConnectException|IOException).*kafka.*"
   },
   {
-    "name": "Unknown Failures",
-    "description": "Uncategorized failures requiring investigation",
-    "matchedStatuses": ["failed", "broken"]
+    "name": "Infrastructure: SSL/TLS Certificate Error",
+    "matchedStatuses": ["broken"],
+    "messageRegex": ".*(ssl|tls|certificate|handshake).*",
+    "traceRegex": ".*(SSLException|CertificateException|SSLHandshakeException).*"
+  },
+  {
+    "name": "Infrastructure: Cloud Provider Degradation",
+    "matchedStatuses": ["broken"],
+    "messageRegex": ".*(aiven|service unavailable|503|502|gateway).*",
+    "traceRegex": ".*"
+  },
+  {
+    "name": "Kafka: Consumer Rebalance Timeout",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*(rebalance|group coordinator|rebalancing).*timeout.*",
+    "traceRegex": ".*RebalanceInProgressException.*"
+  },
+  {
+    "name": "Kafka: Consumer Group Not Initialized",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*Consumer not initialized for thread.*",
+    "traceRegex": ".*IllegalStateException.*Consumer not initialized.*"
+  },
+  {
+    "name": "Kafka: Offset Commit Failure",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*(commit.*offset|offset.*commit).*fail.*",
+    "traceRegex": ".*(CommitFailedException|OffsetOutOfRangeException).*"
+  },
+  {
+    "name": "Kafka: Serialization Error",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*(serialization|deseriali[sz]ation).*",
+    "traceRegex": ".*SerializationException.*"
+  },
+  {
+    "name": "Kafka: Topic Not Found or Creation Failed",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*(topic.*not.*found|failed to create topic|unknown topic).*",
+    "traceRegex": ".*(UnknownTopicOrPartitionException|TopicExistsException).*"
+  },
+  {
+    "name": "Kafka: Topic Deletion Failed (Retry Exhausted)",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*Failed to delete topic.*after.*attempts.*",
+    "traceRegex": ".*"
+  },
+  {
+    "name": "Test Issue: Assertion Failure - Message Count Mismatch",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*expected.*messages?.*but.*(?:was|got|received).*",
+    "traceRegex": ".*AssertionError.*"
+  },
+  {
+    "name": "Test Issue: Assertion Failure - Value Mismatch",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*(?:expected|expecting).*<.*>.*but was.*<.*>.*",
+    "traceRegex": ".*AssertionError.*"
+  },
+  {
+    "name": "Test Issue: Assertion Failure - Null/Empty Check",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*(expected.*not.*null|should not be empty|was null).*",
+    "traceRegex": ".*AssertionError.*"
+  },
+  {
+    "name": "Test Issue: Assertion Failure - Timing/Latency",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*(?:latency|duration|time).*(?:less than|greater than).*",
+    "traceRegex": ".*AssertionError.*"
+  },
+  {
+    "name": "Test Issue: Async Condition Timeout (Awaitility)",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*(Condition not met|ConditionTimeoutException).*",
+    "traceRegex": ".*ConditionTimeoutException.*"
+  },
+  {
+    "name": "Test Issue: Thread Synchronization Problem",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*(?:ThreadLocal|thread.*not initialized|wrong thread).*",
+    "traceRegex": ".*(IllegalStateException|IllegalMonitorStateException).*thread.*"
+  },
+  {
+    "name": "Test Issue: InterruptedException (Test Aborted)",
+    "matchedStatuses": ["broken"],
+    "messageRegex": ".*interrupted.*",
+    "traceRegex": ".*InterruptedException.*"
+  },
+  {
+    "name": "Product Defect: Message Processing Error",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*(processing.*message|message.*process).*error.*",
+    "traceRegex": "(?!.*AssertionError).*Exception.*"
+  },
+  {
+    "name": "Product Defect: Data Integrity Violation",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*(duplicate|ordering|out of order|sequence).*",
+    "traceRegex": ".*"
+  },
+  {
+    "name": "Flaky: Intermittent Kafka Timeout",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*poll.*timeout.*",
+    "traceRegex": ".*"
+  },
+  {
+    "name": "Flaky: Timing-Dependent Failure",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*(timing|race condition|eventual|eventually).*",
+    "traceRegex": ".*"
+  },
+  {
+    "name": "Environment: Configuration Missing",
+    "matchedStatuses": ["broken"],
+    "messageRegex": ".*(configuration|property|environment variable).*(?:missing|not found|null).*",
+    "traceRegex": ".*(NullPointerException|IllegalArgumentException).*config.*"
+  },
+  {
+    "name": "Environment: Resource Exhaustion",
+    "matchedStatuses": ["broken"],
+    "messageRegex": ".*(out of memory|heap space|too many open files).*",
+    "traceRegex": ".*(OutOfMemoryError|IOException).*"
+  },
+  {
+    "name": "Unknown Failure (Needs Investigation)",
+    "matchedStatuses": ["failed", "broken"],
+    "messageRegex": ".*"
   }
 ]
