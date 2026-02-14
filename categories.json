@@ -1,0 +1,86 @@
+[
+  {
+    "name": "Infrastructure Failures",
+    "description": "Tests failed due to network, broker, or cloud infrastructure issues",
+    "matchedStatuses": ["failed", "broken"],
+    "messageRegex": ".*(TimeoutException|NetworkClient|Disconnect|Connection.*timeout|socket.*timeout|Timed out waiting|Cancelled.*request).*"
+  },
+  {
+    "name": "Producer Timeout",
+    "description": "Producer failed to send messages within delivery.timeout.ms",
+    "matchedStatuses": ["failed", "broken"],
+    "messageRegex": ".*(Expiring.*record.*has passed since batch creation|delivery.*timeout|Failed to send message sync).*"
+  },
+  {
+    "name": "Topic Creation Failures",
+    "description": "Failed to create or delete Kafka topics",
+    "matchedStatuses": ["failed", "broken"],
+    "messageRegex": ".*(Failed to create topic|Failed to delete topic|createTopics.*timed out).*"
+  },
+  {
+    "name": "Consumer Rebalance Issues",
+    "description": "Consumer group coordination and rebalancing failures",
+    "matchedStatuses": ["failed", "broken"],
+    "messageRegex": ".*(MemberIdRequiredException|RebalanceInProgressException|Consumer.*not initialized|Consumer group.*rebalance).*"
+  },
+  {
+    "name": "Serialization/Deserialization Errors",
+    "description": "Message serialization or deserialization failures",
+    "matchedStatuses": ["failed", "broken"],
+    "messageRegex": ".*(SerializationException|DeserializationException|JsonProcessingException|Failed to generate JSON).*"
+  },
+  {
+    "name": "Assertion Failures",
+    "description": "Test assertions did not meet expected conditions",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*(AssertionError|expected.*but was|should.*but|Expecting actual).*"
+  },
+  {
+    "name": "Performance Threshold Violations",
+    "description": "Performance tests exceeded expected time or throughput limits",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*(latency.*exceeded|throughput.*below|duration.*longer than|isLessThan.*seconds).*"
+  },
+  {
+    "name": "SSL/TLS Configuration Issues",
+    "description": "SSL certificate or keystore configuration errors",
+    "matchedStatuses": ["failed", "broken"],
+    "messageRegex": ".*(SSLException|ssl.*truststore|ssl.*keystore|certificate|SSL handshake).*"
+  },
+  {
+    "name": "Offset Management Failures",
+    "description": "Issues with offset commit, reset, or position tracking",
+    "matchedStatuses": ["failed", "broken"],
+    "messageRegex": ".*(OffsetOutOfRangeException|Failed to commit offset|offset.*reset|position.*invalid).*"
+  },
+  {
+    "name": "Transaction Failures",
+    "description": "Kafka transaction errors (commit, abort, coordination)",
+    "matchedStatuses": ["failed", "broken"],
+    "messageRegex": ".*(TransactionException|ProducerFencedException|transaction.*abort|transaction.*commit).*"
+  },
+  {
+    "name": "Flaky Tests",
+    "description": "Tests that passed on retry or show intermittent failures",
+    "matchedStatuses": ["failed"],
+    "traceRegex": ".*(pollWithRetry|AsyncTestHelper|waitFor|retry).*",
+    "messageRegex": ".*(transient|intermittent|cloud.*unstable|received.*expected).*"
+  },
+  {
+    "name": "Product Defects",
+    "description": "Legitimate bugs in the application under test",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*(NullPointerException|IllegalStateException|IllegalArgumentException|ClassCastException).*"
+  },
+  {
+    "name": "Test Infrastructure",
+    "description": "Issues with test framework, BaseTest, or test utilities",
+    "matchedStatuses": ["broken"],
+    "traceRegex": ".*(BaseTest|TestDataGenerator|KafkaTestExecutionListener|AllureKafkaListener).*"
+  },
+  {
+    "name": "Unknown Failures",
+    "description": "Uncategorized failures requiring investigation",
+    "matchedStatuses": ["failed", "broken"]
+  }
+]

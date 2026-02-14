@@ -231,6 +231,14 @@ jobs:
           fi
 
       # ─────────────────────────────────────────────
+      # Copy categories to Allure results
+      # ─────────────────────────────────────────────
+      - name: Copy categories to Allure results
+        if: always()
+        run: |
+          cp categories.json target/allure-results/ || echo "categories.json not found"
+
+      # ─────────────────────────────────────────────
       # Generate Allure report
       # ─────────────────────────────────────────────
       - name: Generate Allure Report
