@@ -10,6 +10,7 @@ import org.apache.kafka.clients.admin.ListTopicsResult;
 import org.apache.kafka.clients.admin.NewTopic;
 import qa.autotest.framework.config.KafkaConfig;
 
+import java.time.Duration;
 import java.util.Collections;
 import java.util.Properties;
 import java.util.Set;
@@ -203,13 +204,18 @@ public class KafkaTopicManager implements AutoCloseable {
     }
 
     /**
-     * Closes the admin client
+     * Closes the admin client with timeout
+     * AdminClient is thread-safe and shared across threads, so single close is sufficient
      */
     @Override
     public void close() {
         if (adminClient != null) {
-            adminClient.close();
-            log.debug("Admin client closed");
+            try {
+                adminClient.close(Duration.ofSeconds(5));
+                log.debug("Admin client closed successfully");
+            } catch (Exception e) {
+                log.warn("Error closing admin client: {}", e.getMessage());
+            }
         }
     }
 }

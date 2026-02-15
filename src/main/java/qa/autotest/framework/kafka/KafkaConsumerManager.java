@@ -13,19 +13,23 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 import qa.autotest.app.dto.ConsumerRecordDto;
 import qa.autotest.framework.config.KafkaConfig;
 
+import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.UUID;
 
 /**
- * Thread-safe Kafka Consumer Manager
+ * Thread-safe Kafka Consumer Manager with Explicit Thread Tracking
  * Manages Kafka consumer instances and message consumption operations
+ * Prevents memory leaks in parallel execution environments
  */
 @Slf4j
 public class KafkaConsumerManager implements AutoCloseable {
@@ -33,15 +37,24 @@ public class KafkaConsumerManager implements AutoCloseable {
     private final KafkaConfig config;
     private final ThreadLocal<KafkaConsumer<String, String>> consumerThreadLocal;
     private final ThreadLocal<String> groupIdThreadLocal;
+    
+    /**
+     * Track all created consumers across all threads using WeakReferences
+     * This prevents memory leaks in ForkJoinPool and parallel execution scenarios
+     */
+    private final Set<WeakReference<KafkaConsumer<String, String>>> allConsumers = 
+        Collections.synchronizedSet(new HashSet<>());
 
     public KafkaConsumerManager(KafkaConfig config) {
         this.config = config;
         this.consumerThreadLocal = new ThreadLocal<>();
         this.groupIdThreadLocal = new ThreadLocal<>();
+        log.debug("KafkaConsumerManager initialized with explicit thread tracking");
     }
 
     /**
-     * Creates a new Kafka consumer with unique group ID
+     * Creates a new Kafka consumer with unique group ID and registers it for tracking
+     * Uses WeakReference to allow garbage collection while maintaining cleanup capability
      */
     private KafkaConsumer<String, String> createConsumer(String groupId) {
         log.debug("Creating Kafka consumer on thread: {} with group ID: {}",
@@ -64,7 +77,13 @@ public class KafkaConsumerManager implements AutoCloseable {
         // Security configuration (SSL/TLS)
         KafkaPropertiesBuilder.configureSecurity(props, config);
 
-        return new KafkaConsumer<>(props);
+        KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
+        
+        // Register consumer for global tracking to prevent memory leaks
+        allConsumers.add(new WeakReference<>(consumer));
+        log.debug("Registered consumer for tracking. Total tracked: {}", allConsumers.size());
+        
+        return consumer;
     }
 
     /**
@@ -279,7 +298,8 @@ public class KafkaConsumerManager implements AutoCloseable {
     }
 
     /**
-     * Closes the consumer for the current thread
+     * Closes the consumer for the current thread only
+     * For complete cleanup of all threads, use closeAll()
      */
     @Override
     public void close() {
@@ -287,11 +307,69 @@ public class KafkaConsumerManager implements AutoCloseable {
         try {
             if (consumer != null) {
                 log.debug("Closing consumer on thread: {}", Thread.currentThread().getName());
-                consumer.close();
+                consumer.close(Duration.ofSeconds(5));
             }
+        } catch (Exception e) {
+            log.warn("Error closing consumer for current thread: {}", e.getMessage());
         } finally {
             consumerThreadLocal.remove();
             groupIdThreadLocal.remove();
+        }
+    }
+
+    /**
+     * Closes ALL consumers from ALL threads - CRITICAL for preventing memory leaks
+     * This method MUST be called in @AfterAll to ensure complete cleanup in parallel execution
+     * 
+     * In ForkJoinPool and parallel test scenarios, consumers from worker threads
+     * will not be closed by the standard close() method. This method ensures
+     * all consumers are properly closed regardless of which thread created them.
+     * 
+     * @apiNote Call this method in BaseTest.globalCleanup() annotated with @AfterAll
+     */
+    public void closeAll() {
+        log.info("Closing ALL consumers from ALL threads. Total tracked: {}", allConsumers.size());
+        
+        int closedCount = 0;
+        int failedCount = 0;
+        
+        synchronized (allConsumers) {
+            for (WeakReference<KafkaConsumer<String, String>> ref : allConsumers) {
+                KafkaConsumer<String, String> consumer = ref.get();
+                if (consumer != null) {
+                    try {
+                        consumer.close(Duration.ofSeconds(5));
+                        closedCount++;
+                        log.debug("Successfully closed consumer instance");
+                    } catch (Exception e) {
+                        failedCount++;
+                        log.warn("Failed to close consumer instance: {}", e.getMessage());
+                    }
+                }
+            }
+            allConsumers.clear();
+        }
+        
+        // Also remove from current thread
+        consumerThreadLocal.remove();
+        groupIdThreadLocal.remove();
+        
+        log.info("Consumer cleanup complete. Closed: {}, Failed: {}", closedCount, failedCount);
+    }
+
+    /**
+     * Gets the number of currently tracked consumers across all threads
+     * Useful for monitoring and debugging memory usage
+     * 
+     * @return number of consumers being tracked
+     */
+    public int getTrackedConsumerCount() {
+        synchronized (allConsumers) {
+            // Count only non-null references (not yet garbage collected)
+            return (int) allConsumers.stream()
+                .map(WeakReference::get)
+                .filter(c -> c != null)
+                .count();
         }
     }
 

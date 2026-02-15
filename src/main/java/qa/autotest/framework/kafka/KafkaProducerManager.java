@@ -12,29 +12,44 @@ import org.apache.kafka.common.serialization.StringSerializer;
 import qa.autotest.app.dto.KafkaMessageDto;
 import qa.autotest.framework.config.KafkaConfig;
 
+import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.Future;
 
 /**
- * Thread-safe Kafka Producer Manager
+ * Thread-safe Kafka Producer Manager with Explicit Thread Tracking
  * Manages Kafka producer instances and message sending operations
+ * Prevents memory leaks in parallel execution environments
  */
 @Slf4j
 public class KafkaProducerManager implements AutoCloseable {
 
     private final KafkaConfig config;
     private final ThreadLocal<KafkaProducer<String, String>> producerThreadLocal;
+    
+    /**
+     * Track all created producers across all threads using WeakReferences
+     * This prevents memory leaks in ForkJoinPool and parallel execution scenarios
+     */
+    private final Set<WeakReference<KafkaProducer<String, String>>> allProducers = 
+        Collections.synchronizedSet(new HashSet<>());
 
     public KafkaProducerManager(KafkaConfig config) {
         this.config = config;
         this.producerThreadLocal = ThreadLocal.withInitial(this::createProducer);
+        log.debug("KafkaProducerManager initialized with explicit thread tracking");
     }
 
     /**
-     * Creates a new Kafka producer with configuration
+     * Creates a new Kafka producer with configuration and registers it for tracking
+     * Uses WeakReference to allow garbage collection while maintaining cleanup capability
      */
     private KafkaProducer<String, String> createProducer() {
         log.debug("Creating Kafka producer on thread: {}", Thread.currentThread().getName());
@@ -54,7 +69,13 @@ public class KafkaProducerManager implements AutoCloseable {
         // Security configuration (SSL/TLS)
         KafkaPropertiesBuilder.configureSecurity(props, config);
 
-        return new KafkaProducer<>(props);
+        KafkaProducer<String, String> producer = new KafkaProducer<>(props);
+        
+        // Register producer for global tracking to prevent memory leaks
+        allProducers.add(new WeakReference<>(producer));
+        log.debug("Registered producer for tracking. Total tracked: {}", allProducers.size());
+        
+        return producer;
     }
 
     /**
@@ -255,25 +276,76 @@ public class KafkaProducerManager implements AutoCloseable {
     }
 
     /**
-     * Closes the producer for the current thread
+     * Closes the producer for the current thread only
+     * For complete cleanup of all threads, use closeAll()
      */
     @Override
     public void close() {
         KafkaProducer<String, String> producer = producerThreadLocal.get();
         try {
             if (producer != null) {
-                producer.close();
+                log.debug("Closing producer for thread: {}", Thread.currentThread().getName());
+                producer.close(Duration.ofSeconds(5));
             }
+        } catch (Exception e) {
+            log.warn("Error closing producer for current thread: {}", e.getMessage());
         } finally {
             producerThreadLocal.remove();
         }
     }
 
     /**
-     * Closes all producers (call at the end of test suite)
+     * Closes ALL producers from ALL threads - CRITICAL for preventing memory leaks
+     * This method MUST be called in @AfterAll to ensure complete cleanup in parallel execution
+     * 
+     * In ForkJoinPool and parallel test scenarios, producers from worker threads
+     * will not be closed by the standard close() method. This method ensures
+     * all producers are properly closed regardless of which thread created them.
+     * 
+     * @apiNote Call this method in BaseTest.globalCleanup() annotated with @AfterAll
      */
     public void closeAll() {
-        log.info("Closing all producers");
+        log.info("Closing ALL producers from ALL threads. Total tracked: {}", allProducers.size());
+        
+        int closedCount = 0;
+        int failedCount = 0;
+        
+        synchronized (allProducers) {
+            for (WeakReference<KafkaProducer<String, String>> ref : allProducers) {
+                KafkaProducer<String, String> producer = ref.get();
+                if (producer != null) {
+                    try {
+                        producer.close(Duration.ofSeconds(5));
+                        closedCount++;
+                        log.debug("Successfully closed producer instance");
+                    } catch (Exception e) {
+                        failedCount++;
+                        log.warn("Failed to close producer instance: {}", e.getMessage());
+                    }
+                }
+            }
+            allProducers.clear();
+        }
+        
+        // Also remove from current thread
         producerThreadLocal.remove();
+        
+        log.info("Producer cleanup complete. Closed: {}, Failed: {}", closedCount, failedCount);
+    }
+    
+    /**
+     * Gets the number of currently tracked producers across all threads
+     * Useful for monitoring and debugging memory usage
+     * 
+     * @return number of producers being tracked
+     */
+    public int getTrackedProducerCount() {
+        synchronized (allProducers) {
+            // Count only non-null references (not yet garbage collected)
+            return (int) allProducers.stream()
+                .map(WeakReference::get)
+                .filter(p -> p != null)
+                .count();
+        }
     }
 }

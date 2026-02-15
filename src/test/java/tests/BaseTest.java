@@ -2,9 +2,7 @@ package tests;
 
 import io.qameta.allure.Step;
 import lombok.extern.slf4j.Slf4j;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import qa.autotest.framework.config.ConfigFactory;
 import qa.autotest.framework.utils.AsyncTestHelper;
@@ -16,11 +14,19 @@ import tests.listeners.AllureKafkaListener;
 import tests.listeners.KafkaTestExecutionListener;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Base test class with common setup and teardown for Kafka tests
  * Supports parallel execution with thread-safe resources
+ * 
+ * MEMORY LEAK PREVENTION:
+ * This class implements explicit global cleanup to prevent memory leaks
+ * in ForkJoinPool and parallel execution scenarios. The globalCleanup()
+ * method ensures all Kafka clients across all threads are properly closed.
  */
 @Slf4j
 @ExtendWith({AllureKafkaListener.class, KafkaTestExecutionListener.class})
@@ -28,6 +34,15 @@ public abstract class BaseTest {
 
     protected static final KafkaConfig CONFIG = ConfigFactory.getConfig();
     
+    // Static thread-safe collections for tracking all managers across all threads
+    private static final Set<KafkaProducerManager> ALL_PRODUCER_MANAGERS = 
+        Collections.synchronizedSet(new HashSet<>());
+    private static final Set<KafkaConsumerManager> ALL_CONSUMER_MANAGERS = 
+        Collections.synchronizedSet(new HashSet<>());
+    private static final Set<KafkaTopicManager> ALL_TOPIC_MANAGERS = 
+        Collections.synchronizedSet(new HashSet<>());
+    
+    // Instance-level managers for per-test resources
     protected KafkaProducerManager producerManager;
     protected KafkaConsumerManager consumerManager;
     protected KafkaTopicManager topicManager;
@@ -40,6 +55,7 @@ public abstract class BaseTest {
         log.info("=== Kafka Test Framework Initialized ===");
         log.info("Kafka SSL enabled");
         log.info("Security Protocol: {}", CONFIG.securityProtocol());
+        log.info("Memory leak prevention: ENABLED (explicit thread tracking)");
     }
 
     @BeforeEach
@@ -53,7 +69,15 @@ public abstract class BaseTest {
         consumerManager = new KafkaConsumerManager(CONFIG);
         topicManager = new KafkaTopicManager(CONFIG);
         
+        // Track managers for global cleanup to prevent memory leaks
+        ALL_PRODUCER_MANAGERS.add(producerManager);
+        ALL_CONSUMER_MANAGERS.add(consumerManager);
+        ALL_TOPIC_MANAGERS.add(topicManager);
+        
         createdTopics = new ArrayList<>();
+        
+        log.debug("Managers initialized. Total tracked - Producers: {}, Consumers: {}, Topics: {}",
+                 ALL_PRODUCER_MANAGERS.size(), ALL_CONSUMER_MANAGERS.size(), ALL_TOPIC_MANAGERS.size());
     }
 
     @AfterEach
@@ -61,25 +85,92 @@ public abstract class BaseTest {
     void tearDown() {
         log.info("=== Test Cleanup Started ===");
 
-        // delete topics first (если это требуется логикой)
+        // Delete topics first
         safeRun("delete topics", () -> {
             if (topicManager != null && !createdTopics.isEmpty()) {
                 log.info("Cleaning up {} test topics", createdTopics.size());
                 createdTopics.forEach(t -> deleteTopicWithRetry(t, 5));
             }
         });
+        
+        // Close current thread's resources (not all threads - that's done in globalCleanup)
         safeClose(producerManager, "producer");
         safeClose(consumerManager, "consumer");
         safeClose(topicManager, "topic manager");
-        
-        // Attach metrics to Allure if test failed
-        try {
-            qa.autotest.framework.metrics.TestMetricsCollector.attachMetricsToAllure();
-        } catch (Exception e) {
-            log.warn("Failed to attach metrics to Allure: {}", e.getMessage());
-        }
 
         log.info("=== Test Finished: {} ===", getClass().getSimpleName());
+    }
+    
+    /**
+     * CRITICAL MEMORY LEAK FIX: Global cleanup to close ALL producers/consumers from ALL threads
+     * 
+     * This method is ESSENTIAL for preventing memory leaks in parallel test execution.
+     * It ensures that ALL Kafka clients are properly closed, even if they were created
+     * by threads that no longer exist (e.g., in ForkJoinPool worker threads).
+     * 
+     * Without this cleanup:
+     * - Producers and consumers from terminated threads remain open
+     * - TCP connections to Kafka remain active
+     * - Memory leaks occur during long test runs
+     * - Eventually leads to connection pool exhaustion and OOM errors
+     * 
+     * The closeAll() methods use WeakReference tracking to find and close
+     * all instances across all threads.
+     */
+    @AfterAll
+    static void globalCleanup() {
+        log.info("=== Global Cleanup Started ===");
+        log.info("Total managers to cleanup - Producers: {}, Consumers: {}, Topics: {}",
+                ALL_PRODUCER_MANAGERS.size(), ALL_CONSUMER_MANAGERS.size(), ALL_TOPIC_MANAGERS.size());
+        
+        int totalProducersClosed = 0;
+        int totalConsumersClosed = 0;
+        
+        // Close all producers across all threads
+        for (KafkaProducerManager manager : ALL_PRODUCER_MANAGERS) {
+            try {
+                if (manager != null) {
+                    int trackedBefore = manager.getTrackedProducerCount();
+                    manager.closeAll();  // Closes ALL producers from ALL threads
+                    totalProducersClosed += trackedBefore;
+                    log.debug("Closed producer manager (had {} tracked producers)", trackedBefore);
+                }
+            } catch (Exception e) {
+                log.warn("Failed to close producer manager: {}", e.getMessage());
+            }
+        }
+        ALL_PRODUCER_MANAGERS.clear();
+        
+        // Close all consumers across all threads
+        for (KafkaConsumerManager manager : ALL_CONSUMER_MANAGERS) {
+            try {
+                if (manager != null) {
+                    int trackedBefore = manager.getTrackedConsumerCount();
+                    manager.closeAll();  // Closes ALL consumers from ALL threads
+                    totalConsumersClosed += trackedBefore;
+                    log.debug("Closed consumer manager (had {} tracked consumers)", trackedBefore);
+                }
+            } catch (Exception e) {
+                log.warn("Failed to close consumer manager: {}", e.getMessage());
+            }
+        }
+        ALL_CONSUMER_MANAGERS.clear();
+        
+        // Close all topic managers
+        for (KafkaTopicManager manager : ALL_TOPIC_MANAGERS) {
+            try {
+                if (manager != null) {
+                    manager.close();
+                }
+            } catch (Exception e) {
+                log.warn("Failed to close topic manager: {}", e.getMessage());
+            }
+        }
+        ALL_TOPIC_MANAGERS.clear();
+        
+        log.info("=== Global Cleanup Completed ===");
+        log.info("Total resources closed - Producers: {}, Consumers: {}", 
+                totalProducersClosed, totalConsumersClosed);
     }
     
     /**
