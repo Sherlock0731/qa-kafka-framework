@@ -72,6 +72,8 @@ public class KafkaProducerManager implements AutoCloseable {
      */
     @Step("Send message to Kafka topic: {message.topic}")
     public RecordMetadata sendSync(KafkaMessageDto message) {
+        long startTime = System.currentTimeMillis();
+
         try {
             ProducerRecord<String, String> record = createProducerRecord(message);
 
@@ -80,17 +82,64 @@ public class KafkaProducerManager implements AutoCloseable {
 
             RecordMetadata metadata = getProducer().send(record).get();
 
-            log.info("Message sent successfully to partition {} with offset {}",
-                    metadata.partition(), metadata.offset());
+            long duration = System.currentTimeMillis() - startTime;
+            log.info("Message sent successfully to partition {} with offset {} (took {} ms)",
+                    metadata.partition(), metadata.offset(), duration);
 
             // Update message with offset and partition
             message.setOffset(metadata.offset());
             message.setPartition(metadata.partition());
 
+            // Record metrics
+            qa.autotest.framework.metrics.TestMetricsCollector.recordDuration("producer_send_sync", duration);
+
             return metadata;
         } catch (Exception e) {
-            log.error("Failed to send message sync: {}", e.getMessage(), e);
-            throw new RuntimeException("Failed to send message sync", e);
+            long duration = System.currentTimeMillis() - startTime;
+            log.error("Failed to send message sync to topic '{}' after {} ms: {}",
+                    message.getTopic(), duration, e.getMessage(), e);
+
+            // Categorize the exception
+            Throwable cause = e.getCause();
+            String errorMessage = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
+            String causeMessage = cause != null && cause.getMessage() != null ?
+                    cause.getMessage().toLowerCase() : "";
+
+            // Check for timeout
+            if (errorMessage.contains("timeout") || causeMessage.contains("timeout") ||
+                    e.getClass().getSimpleName().contains("Timeout")) {
+                throw qa.autotest.framework.exceptions.KafkaProducerException.timeout(
+                        message.getTopic(),
+                        config.producerRequestTimeoutMs(),
+                        e
+                );
+            }
+
+            // Check for serialization errors
+            if (errorMessage.contains("serialization") || causeMessage.contains("serialization") ||
+                    e.getClass().getSimpleName().contains("Serialization")) {
+                throw qa.autotest.framework.exceptions.KafkaProducerException.serialization(
+                        message.getTopic(),
+                        e
+                );
+            }
+
+            // Check for network errors
+            if (errorMessage.contains("connection") || errorMessage.contains("network") ||
+                    causeMessage.contains("connection") || causeMessage.contains("network")) {
+                throw qa.autotest.framework.exceptions.KafkaProducerException.network(
+                        message.getTopic(),
+                        e
+                );
+            }
+
+            // Generic error
+            throw new qa.autotest.framework.exceptions.KafkaProducerException(
+                    String.format("Failed to send message to topic '%s'", message.getTopic()),
+                    e,
+                    qa.autotest.framework.exceptions.KafkaTestException.ErrorType.UNKNOWN
+            ).addContext("topic", message.getTopic())
+                    .addContext("duration_ms", String.valueOf(duration));
         }
     }
 

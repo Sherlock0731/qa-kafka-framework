@@ -22,15 +22,15 @@ import java.util.concurrent.ExecutionException;
  */
 @Slf4j
 public class KafkaTopicManager implements AutoCloseable {
-    
+
     private final KafkaConfig config;
     private final Admin adminClient;
-    
+
     public KafkaTopicManager(KafkaConfig config) {
         this.config = config;
         this.adminClient = createAdminClient();
     }
-    
+
     /**
      * Creates Kafka admin client
      */
@@ -38,7 +38,7 @@ public class KafkaTopicManager implements AutoCloseable {
         Properties props = new Properties();
         props.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, config.kafkaBootstrapServers());
         props.put(AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, 30000);
-        
+
         // SSL configuration
         if ("SSL".equals(config.securityProtocol()) || "SASL_SSL".equals(config.securityProtocol())) {
             props.put("security.protocol", config.securityProtocol());
@@ -48,18 +48,18 @@ public class KafkaTopicManager implements AutoCloseable {
             props.put("ssl.keystore.location", config.sslKeystoreLocation());
             props.put("ssl.keystore.password", config.sslKeyPassword());
             props.put("ssl.keystore.type", config.sslKeystoreType());
-            
+
             if (config.sslKeyPassword() != null) {
                 props.put("ssl.key.password", config.sslKeyPassword());
             }
         }
-        
+
         return Admin.create(props);
     }
-    
+
     /**
      * Creates a unique test topic
-     * 
+     *
      * @return Topic name
      */
     @Step("Create unique test topic")
@@ -68,10 +68,10 @@ public class KafkaTopicManager implements AutoCloseable {
         createTopic(topicName, config.testTopicPartitions(), config.testTopicReplicationFactor());
         return topicName;
     }
-    
+
     /**
      * Creates a topic with specified partitions
-     * 
+     *
      * @param partitions Number of partitions
      * @return Topic name
      */
@@ -81,36 +81,77 @@ public class KafkaTopicManager implements AutoCloseable {
         createTopic(topicName, partitions, config.testTopicReplicationFactor());
         return topicName;
     }
-    
+
+    /**
+     * Creates a DLQ (Dead Letter Queue) topic for a given main topic
+     *
+     * @param mainTopic Main topic name
+     * @return DLQ topic name
+     */
+    @Step("Create DLQ topic for: {mainTopic}")
+    public String createDlqTopic(String mainTopic) {
+        String dlqTopic = mainTopic + config.dlqTopicSuffix();
+        createTopic(dlqTopic, config.testTopicPartitions(), config.testTopicReplicationFactor());
+        log.info("Created DLQ topic '{}' for main topic '{}'", dlqTopic, mainTopic);
+        return dlqTopic;
+    }
+
     /**
      * Creates a topic with given name
-     * 
+     *
      * @param topicName Topic name
      * @param partitions Number of partitions
      * @param replicationFactor Replication factor
      */
     @Step("Create topic: {topicName}")
     public void createTopic(String topicName, int partitions, short replicationFactor) {
+        long startTime = System.currentTimeMillis();
+
         try {
             NewTopic newTopic = new NewTopic(topicName, partitions, replicationFactor);
             CreateTopicsResult result = adminClient.createTopics(Collections.singleton(newTopic));
             result.all().get(); // Wait for completion
-            
-            log.info("Topic '{}' created with {} partitions and replication factor {}", 
-                    topicName, partitions, replicationFactor);
-        } catch (InterruptedException | ExecutionException e) {
-            if (e.getMessage().contains("TopicExistsException")) {
+
+            long duration = System.currentTimeMillis() - startTime;
+            log.info("Topic '{}' created with {} partitions and replication factor {} (took {} ms)",
+                    topicName, partitions, replicationFactor, duration);
+
+            // Record metrics
+            qa.autotest.framework.metrics.TestMetricsCollector.recordDuration("topic_create", duration);
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            long duration = System.currentTimeMillis() - startTime;
+            log.error("Topic creation interrupted for '{}' after {} ms", topicName, duration);
+            throw new qa.autotest.framework.exceptions.KafkaTopicManagementException(
+                    String.format("Topic creation interrupted: %s", topicName),
+                    e,
+                    qa.autotest.framework.exceptions.KafkaTestException.ErrorType.TOPIC_MANAGEMENT
+            ).addContext("topic", topicName)
+                    .addContext("duration_ms", String.valueOf(duration));
+        } catch (ExecutionException e) {
+            long duration = System.currentTimeMillis() - startTime;
+
+            // Check if topic already exists
+            if (e.getMessage() != null && e.getMessage().contains("TopicExistsException")) {
                 log.warn("Topic '{}' already exists", topicName);
-            } else {
-                log.error("Failed to create topic '{}': {}", topicName, e.getMessage(), e);
-                throw new RuntimeException("Failed to create topic", e);
+                return; // Topic exists, that's okay
             }
+
+            log.error("Failed to create topic '{}' after {} ms: {}", topicName, duration, e.getMessage());
+            throw qa.autotest.framework.exceptions.KafkaTopicManagementException.creationFailed(
+                            topicName,
+                            1,
+                            e
+                    ).addContext("partitions", String.valueOf(partitions))
+                    .addContext("replication_factor", String.valueOf(replicationFactor))
+                    .addContext("duration_ms", String.valueOf(duration));
         }
     }
-    
+
     /**
      * Deletes a topic
-     * 
+     *
      * @param topicName Topic name to delete
      */
     @Step("Delete topic: {topicName}")
@@ -118,70 +159,57 @@ public class KafkaTopicManager implements AutoCloseable {
         try {
             DeleteTopicsResult result = adminClient.deleteTopics(Collections.singleton(topicName));
             result.all().get(); // Wait for completion
-            
+
             log.info("Topic '{}' deleted successfully", topicName);
+
         } catch (InterruptedException | ExecutionException e) {
-            log.error("Failed to delete topic '{}': {}", topicName, e.getMessage(), e);
+            log.error("Failed to delete topic '{}': {}", topicName, e.getMessage());
+            throw new RuntimeException("Failed to delete topic: " + topicName, e);
         }
     }
-    
-    /**
-     * Checks if topic exists
-     * 
-     * @param topicName Topic name
-     * @return True if topic exists
-     */
-    @Step("Check if topic exists: {topicName}")
-    public boolean topicExists(String topicName) {
-        try {
-            ListTopicsResult result = adminClient.listTopics();
-            Set<String> topics = result.names().get();
-            return topics.contains(topicName);
-        } catch (InterruptedException | ExecutionException e) {
-            log.error("Failed to check if topic exists: {}", e.getMessage(), e);
-            return false;
-        }
-    }
-    
+
     /**
      * Lists all topics
-     * 
+     *
      * @return Set of topic names
      */
     @Step("List all topics")
     public Set<String> listTopics() {
         try {
             ListTopicsResult result = adminClient.listTopics();
-            Set<String> topics = result.names().get();
-            log.info("Found {} topics", topics.size());
-            return topics;
+            return result.names().get();
+
         } catch (InterruptedException | ExecutionException e) {
-            log.error("Failed to list topics: {}", e.getMessage(), e);
+            log.error("Failed to list topics: {}", e.getMessage());
             throw new RuntimeException("Failed to list topics", e);
         }
     }
-    
+
     /**
-     * Creates DLQ topic for a given topic
-     * 
-     * @param originalTopic Original topic name
-     * @return DLQ topic name
+     * Checks if topic exists
+     *
+     * @param topicName Topic name to check
+     * @return true if topic exists, false otherwise
      */
-    @Step("Create DLQ topic for: {originalTopic}")
-    public String createDlqTopic(String originalTopic) {
-        String dlqTopic = originalTopic + config.dlqTopicSuffix();
-        createTopic(dlqTopic, config.testTopicPartitions(), config.testTopicReplicationFactor());
-        return dlqTopic;
+    @Step("Check if topic exists: {topicName}")
+    public boolean topicExists(String topicName) {
+        try {
+            Set<String> topics = listTopics();
+            return topics.contains(topicName);
+        } catch (Exception e) {
+            log.error("Failed to check if topic exists: {}", e.getMessage());
+            return false;
+        }
     }
-    
+
     /**
      * Closes the admin client
      */
     @Override
     public void close() {
         if (adminClient != null) {
-            log.debug("Closing admin client");
             adminClient.close();
+            log.debug("Admin client closed");
         }
     }
 }

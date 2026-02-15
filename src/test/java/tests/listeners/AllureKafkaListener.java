@@ -5,6 +5,8 @@ import io.qameta.allure.model.Status;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.api.extension.TestWatcher;
+import qa.autotest.framework.exceptions.KafkaTestException;
+import qa.autotest.framework.metrics.TestMetricsCollector;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
@@ -13,8 +15,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.Optional;
 
 /**
- * Allure listener for Kafka tests
- * Captures test execution details and attaches them to Allure report
+ * Enhanced Allure listener for Kafka tests
+ * Captures test execution details, categorizes failures, and collects metrics
  */
 @Slf4j
 public class AllureKafkaListener implements TestWatcher {
@@ -29,6 +31,7 @@ public class AllureKafkaListener implements TestWatcher {
         log.info("✓ Test PASSED: {}.{}", className, testName);
         
         attachTestInfo(context, Status.PASSED);
+        TestMetricsCollector.recordTestResult(true);
     }
 
     @Override
@@ -39,8 +42,15 @@ public class AllureKafkaListener implements TestWatcher {
         log.error("✗ Test FAILED: {}.{}", className, testName);
         log.error("Failure reason: {}", cause.getMessage(), cause);
         
+        // Categorize failure
+        String category = categorizeFailure(cause);
+        TestMetricsCollector.recordError(category);
+        TestMetricsCollector.recordCategory(category);
+        TestMetricsCollector.recordTestResult(false);
+        
         attachTestInfo(context, Status.FAILED);
         attachFailureDetails(cause);
+        attachErrorCategory(category);
     }
 
     @Override
@@ -50,8 +60,13 @@ public class AllureKafkaListener implements TestWatcher {
         
         log.warn("⊘ Test ABORTED: {}.{}", className, testName);
         
+        String category = categorizeFailure(cause);
+        TestMetricsCollector.recordError(category);
+        TestMetricsCollector.recordTestResult(false);
+        
         attachTestInfo(context, Status.BROKEN);
         attachFailureDetails(cause);
+        attachErrorCategory(category);
     }
 
     @Override
@@ -61,6 +76,68 @@ public class AllureKafkaListener implements TestWatcher {
         
         log.info("⊗ Test DISABLED: {}.{}", className, testName);
         reason.ifPresent(r -> log.info("Reason: {}", r));
+    }
+    
+    /**
+     * Categorize failure based on exception type and message
+     */
+    private String categorizeFailure(Throwable cause) {
+        if (cause == null) {
+            return "UNKNOWN";
+        }
+        
+        // Check if it's our custom exception with category
+        if (cause instanceof KafkaTestException) {
+            KafkaTestException kte = (KafkaTestException) cause;
+            return kte.getErrorCategory();
+        }
+        
+        // Check root cause
+        Throwable rootCause = getRootCause(cause);
+        String exceptionName = rootCause.getClass().getSimpleName();
+        String message = rootCause.getMessage() != null ? rootCause.getMessage().toLowerCase() : "";
+        
+        // Categorize based on exception type and message
+        if (exceptionName.contains("Timeout") || message.contains("timeout") || message.contains("timed out")) {
+            return "INFRASTRUCTURE_TIMEOUT";
+        }
+        
+        if (exceptionName.contains("Connection") || message.contains("connection refused")) {
+            return "INFRASTRUCTURE_CONNECTION";
+        }
+        
+        if (exceptionName.contains("SSL") || message.contains("ssl") || message.contains("certificate")) {
+            return "INFRASTRUCTURE_SSL";
+        }
+        
+        if (message.contains("rebalance")) {
+            return "KAFKA_REBALANCE";
+        }
+        
+        if (exceptionName.contains("AssertionError") || exceptionName.contains("Assertion")) {
+            return "TEST_ASSERTION_FAILURE";
+        }
+        
+        if (message.contains("thread") || message.contains("threadlocal")) {
+            return "TEST_THREAD_SYNC";
+        }
+        
+        if (message.contains("serialization")) {
+            return "KAFKA_SERIALIZATION";
+        }
+        
+        return "UNKNOWN_" + exceptionName;
+    }
+    
+    /**
+     * Get root cause of exception
+     */
+    private Throwable getRootCause(Throwable throwable) {
+        Throwable cause = throwable;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        return cause;
     }
 
     /**
@@ -95,6 +172,21 @@ public class AllureKafkaListener implements TestWatcher {
         details.append("=== Failure Details ===\n\n");
         details.append("Exception Type: ").append(cause.getClass().getName()).append("\n");
         details.append("Message: ").append(cause.getMessage()).append("\n\n");
+        
+        // Add custom exception context if available
+        if (cause instanceof KafkaTestException) {
+            KafkaTestException kte = (KafkaTestException) cause;
+            details.append("Error Category: ").append(kte.getErrorCategory()).append("\n");
+            details.append("Error Type: ").append(kte.getErrorType()).append("\n");
+            if (!kte.getContext().isEmpty()) {
+                details.append("\nContext:\n");
+                kte.getContext().forEach((key, value) -> 
+                    details.append("  ").append(key).append(": ").append(value).append("\n")
+                );
+            }
+            details.append("\n");
+        }
+        
         details.append("Stack Trace:\n");
         
         for (StackTraceElement element : cause.getStackTrace()) {
@@ -110,5 +202,15 @@ public class AllureKafkaListener implements TestWatcher {
         
         Allure.addAttachment("Failure Details", "text/plain",
                 new ByteArrayInputStream(details.toString().getBytes(StandardCharsets.UTF_8)), "txt");
+    }
+    
+    /**
+     * Attach error category as Allure label
+     */
+    private void attachErrorCategory(String category) {
+        Allure.label("error_category", category);
+        Allure.parameter("Error Category", category);
+        
+        log.debug("Error categorized as: {}", category);
     }
 }

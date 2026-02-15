@@ -71,6 +71,13 @@ public abstract class BaseTest {
         safeClose(producerManager, "producer");
         safeClose(consumerManager, "consumer");
         safeClose(topicManager, "topic manager");
+        
+        // Attach metrics to Allure if test failed
+        try {
+            qa.autotest.framework.metrics.TestMetricsCollector.attachMetricsToAllure();
+        } catch (Exception e) {
+            log.warn("Failed to attach metrics to Allure: {}", e.getMessage());
+        }
 
         log.info("=== Test Finished: {} ===", getClass().getSimpleName());
     }
@@ -134,17 +141,28 @@ public abstract class BaseTest {
         RuntimeException lastException = null;
         
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            long backoff = 3000L * attempt; // Exponential backoff: 3s, 6s, 9s, 12s, 15s
+            qa.autotest.framework.utils.RetryContext ctx = 
+                new qa.autotest.framework.utils.RetryContext(attempt, backoff);
+            
             try {
                 String topic = topicCreator.get();
+                ctx.markSuccess();
+                ctx.attachToAllure("Topic Creation");
+                
                 if (attempt > 1) {
                     log.info("✓ Topic created successfully on attempt {}", attempt);
                 }
                 return topic;
             } catch (RuntimeException e) {
                 lastException = e;
+                ctx.markFailure(e);
+                ctx.attachToAllure("Topic Creation");
+                
                 if (attempt < maxRetries) {
-                    log.warn("Failed to create topic (attempt {}), retrying: {}", attempt, e.getMessage());
-                    AsyncTestHelper.waitFor(3 * attempt); // Exponential backoff: 3s, 6s, 9s, 12s
+                    log.warn("Failed to create topic (attempt {}), retrying in {} ms: {}", 
+                        attempt, backoff, e.getMessage());
+                    AsyncTestHelper.waitFor((int)(backoff / 1000)); // Convert to seconds
                 } else {
                     log.error("✗ Failed to create topic after {} attempts: {}", maxRetries, e.getMessage());
                 }

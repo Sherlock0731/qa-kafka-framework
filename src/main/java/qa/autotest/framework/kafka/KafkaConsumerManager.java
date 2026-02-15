@@ -118,8 +118,9 @@ public class KafkaConsumerManager implements AutoCloseable {
     private KafkaConsumer<String, String> getConsumer() {
         KafkaConsumer<String, String> consumer = consumerThreadLocal.get();
         if (consumer == null) {
-            throw new IllegalStateException("Consumer not initialized for thread: " +
-                    Thread.currentThread().getName());
+            String threadName = Thread.currentThread().getName();
+            log.error("Consumer not initialized for thread: {}", threadName);
+            throw qa.autotest.framework.exceptions.KafkaConsumerException.notInitialized(threadName);
         }
         return consumer;
     }
@@ -132,15 +133,41 @@ public class KafkaConsumerManager implements AutoCloseable {
      */
     @Step("Poll messages with timeout: {timeoutSeconds}s")
     public List<ConsumerRecordDto> poll(int timeoutSeconds) {
-        ConsumerRecords<String, String> records = getConsumer().poll(Duration.ofSeconds(timeoutSeconds));
+        long startTime = System.currentTimeMillis();
+        
+        try {
+            ConsumerRecords<String, String> records = getConsumer().poll(Duration.ofSeconds(timeoutSeconds));
 
-        List<ConsumerRecordDto> dtoList = new ArrayList<>();
-        for (ConsumerRecord<String, String> record : records) {
-            dtoList.add(mapToDto(record));
+            List<ConsumerRecordDto> dtoList = new ArrayList<>();
+            for (ConsumerRecord<String, String> record : records) {
+                dtoList.add(mapToDto(record));
+            }
+
+            long duration = System.currentTimeMillis() - startTime;
+            log.info("Polled {} messages in {} ms", dtoList.size(), duration);
+            
+            // Record metrics
+            qa.autotest.framework.metrics.TestMetricsCollector.recordDuration("consumer_poll", duration);
+            
+            return dtoList;
+        } catch (org.apache.kafka.common.errors.TimeoutException e) {
+            long duration = System.currentTimeMillis() - startTime;
+            log.warn("Poll timeout after {} ms", duration);
+            throw new qa.autotest.framework.exceptions.KafkaTimeoutException(
+                "consumer_poll", 
+                timeoutSeconds * 1000L, 
+                e
+            );
+        } catch (Exception e) {
+            long duration = System.currentTimeMillis() - startTime;
+            log.error("Poll failed after {} ms: {}", duration, e.getMessage(), e);
+            throw new qa.autotest.framework.exceptions.KafkaConsumerException(
+                "Failed to poll messages",
+                e,
+                qa.autotest.framework.exceptions.KafkaTestException.ErrorType.UNKNOWN
+            ).addContext("timeout_seconds", String.valueOf(timeoutSeconds))
+             .addContext("duration_ms", String.valueOf(duration));
         }
-
-        log.info("Polled {} messages", dtoList.size());
-        return dtoList;
     }
 
     /**
