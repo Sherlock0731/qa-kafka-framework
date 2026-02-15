@@ -1,0 +1,14 @@
+{
+  "category_distribution": {},
+  "test_summary": {
+    "total": 51,
+    "passed": 51,
+    "failed": 0
+  },
+  "error_counts": {},
+  "operation_durations_ms": {
+    "consumer_poll": 158113,
+    "topic_create": 106907,
+    "producer_send_sync": 179042
+  }
+}

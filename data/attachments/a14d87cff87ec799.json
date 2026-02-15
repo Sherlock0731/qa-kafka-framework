@@ -1,0 +1,13 @@
+{
+  "category_distribution": {},
+  "test_summary": {
+    "total": 3,
+    "passed": 3,
+    "failed": 0
+  },
+  "error_counts": {},
+  "operation_durations_ms": {
+    "topic_create": 58010,
+    "producer_send_sync": 19854
+  }
+}
