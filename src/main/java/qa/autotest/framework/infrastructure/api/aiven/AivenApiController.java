@@ -1,4 +1,4 @@
-package qa.autotest.framework.api;
+package qa.autotest.framework.infrastructure.api.aiven;
 
 import io.restassured.builder.RequestSpecBuilder;
 import io.restassured.filter.log.LogDetail;
@@ -8,7 +8,7 @@ import io.restassured.http.ContentType;
 import io.restassured.response.Response;
 import io.restassured.specification.RequestSpecification;
 import lombok.extern.slf4j.Slf4j;
-import qa.autotest.app.dto.AivenTopicListResponseDto;
+import qa.autotest.framework.infrastructure.api.aiven.dto.AivenTopicListResponseDto;
 import qa.autotest.framework.config.KafkaConfig;
 
 import java.util.List;

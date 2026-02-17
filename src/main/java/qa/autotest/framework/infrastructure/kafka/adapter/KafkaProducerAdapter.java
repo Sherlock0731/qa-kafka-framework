@@ -9,6 +9,7 @@ import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.internals.RecordHeader;
 import org.apache.kafka.common.serialization.StringSerializer;
 import qa.autotest.framework.config.KafkaConfig;
+import qa.autotest.framework.domain.model.KafkaErrorCategory;
 import qa.autotest.framework.domain.model.Message;
 import qa.autotest.framework.domain.model.PublishResult;
 import qa.autotest.framework.domain.port.MessagePublisher;
@@ -115,12 +116,7 @@ public class KafkaProducerAdapter implements MessagePublisher {
             log.error("Failed to publish message: topic={}, error={}, duration={}ms",
                     message.getTopic().getName(), e.getMessage(), duration, e);
 
-            return PublishResult.failure(
-                    message,
-                    e.getMessage(),
-                    categorizeError(e),
-                    e
-            );
+            return PublishResult.failureFrom(message, e.getMessage(), e);
         }
     }
 
@@ -140,22 +136,12 @@ public class KafkaProducerAdapter implements MessagePublisher {
                             metadata.timestamp()
                     ));
                 } else {
-                    future.complete(PublishResult.failure(
-                            message,
-                            exception.getMessage(),
-                            categorizeError(exception),
-                            exception
-                    ));
+                    future.complete(PublishResult.failureFrom(message, exception.getMessage(), exception));
                 }
             });
 
         } catch (Exception e) {
-            future.complete(PublishResult.failure(
-                    message,
-                    e.getMessage(),
-                    categorizeError(e),
-                    e
-            ));
+            future.complete(PublishResult.failureFrom(message, e.getMessage(), e));
         }
 
         return future;
@@ -271,43 +257,5 @@ public class KafkaProducerAdapter implements MessagePublisher {
         } else {
             return new ProducerRecord<>(topic, null, key, value, headers);
         }
-    }
-
-    /**
-     * Categorizes exception into domain error category
-     */
-    private PublishResult.ErrorCategory categorizeError(Throwable exception) {
-        String message = exception.getMessage();
-
-        if (message == null) {
-            return PublishResult.ErrorCategory.UNKNOWN_ERROR;
-        }
-
-        if (message.contains("timeout") || message.contains("timed out")) {
-            return PublishResult.ErrorCategory.TIMEOUT_ERROR;
-        }
-        if (message.contains("network") || message.contains("connection")) {
-            return PublishResult.ErrorCategory.NETWORK_ERROR;
-        }
-        if (message.contains("authentication") || message.contains("credentials")) {
-            return PublishResult.ErrorCategory.AUTHENTICATION_ERROR;
-        }
-        if (message.contains("authorization") || message.contains("not authorized")) {
-            return PublishResult.ErrorCategory.AUTHORIZATION_ERROR;
-        }
-        if (message.contains("topic") && message.contains("not found")) {
-            return PublishResult.ErrorCategory.TOPIC_NOT_FOUND;
-        }
-        if (message.contains("broker") || message.contains("unavailable")) {
-            return PublishResult.ErrorCategory.BROKER_NOT_AVAILABLE;
-        }
-        if (message.contains("buffer") || message.contains("memory")) {
-            return PublishResult.ErrorCategory.BUFFER_EXHAUSTED;
-        }
-        if (message.contains("serialization")) {
-            return PublishResult.ErrorCategory.SERIALIZATION_ERROR;
-        }
-
-        return PublishResult.ErrorCategory.UNKNOWN_ERROR;
     }
 }

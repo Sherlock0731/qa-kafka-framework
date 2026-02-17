@@ -1,7 +1,7 @@
 package qa.autotest.framework.kafka;
 
 import lombok.extern.slf4j.Slf4j;
-import qa.autotest.framework.api.AivenApiController;
+import qa.autotest.framework.infrastructure.api.aiven.AivenApiController;
 import qa.autotest.framework.config.KafkaConfig;
 
 import java.util.List;

@@ -8,6 +8,7 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 import qa.autotest.framework.config.KafkaConfig;
 import qa.autotest.framework.domain.model.ConsumeResult;
 import qa.autotest.framework.domain.model.ConsumerGroup;
+import qa.autotest.framework.domain.model.KafkaErrorCategory;
 import qa.autotest.framework.domain.model.Message;
 import qa.autotest.framework.domain.model.Topic;
 import qa.autotest.framework.domain.port.MessageConsumer;
@@ -115,7 +116,7 @@ public class KafkaConsumerAdapter implements MessageConsumer {
 
         } catch (Exception e) {
             log.error("Failed to poll messages: {}", e.getMessage(), e);
-            return ConsumeResult.failure(e.getMessage(), categorizeError(e));
+            return ConsumeResult.failureFrom(e.getMessage(), e);
         }
     }
 
@@ -147,7 +148,7 @@ public class KafkaConsumerAdapter implements MessageConsumer {
 
         } catch (Exception e) {
             log.error("Failed to poll expected messages: {}", e.getMessage(), e);
-            return ConsumeResult.failure(e.getMessage(), categorizeError(e));
+            return ConsumeResult.failureFrom(e.getMessage(), e);
         }
     }
 
@@ -183,7 +184,7 @@ public class KafkaConsumerAdapter implements MessageConsumer {
 
         } catch (Exception e) {
             log.error("Failed to consume all messages: {}", e.getMessage(), e);
-            return ConsumeResult.failure(e.getMessage(), categorizeError(e));
+            return ConsumeResult.failureFrom(e.getMessage(), e);
         }
     }
 
@@ -324,40 +325,5 @@ public class KafkaConsumerAdapter implements MessageConsumer {
                 .correlationId(correlationId)
                 .eventType(eventType)
                 .build();
-    }
-
-    /**
-     * Categorizes exception into domain error category
-     */
-    private ConsumeResult.ErrorCategory categorizeError(Throwable exception) {
-        String message = exception.getMessage();
-
-        if (message == null) {
-            return ConsumeResult.ErrorCategory.UNKNOWN_ERROR;
-        }
-
-        if (message.contains("timeout") || message.contains("timed out")) {
-            return ConsumeResult.ErrorCategory.TIMEOUT_ERROR;
-        }
-        if (message.contains("network") || message.contains("connection")) {
-            return ConsumeResult.ErrorCategory.NETWORK_ERROR;
-        }
-        if (message.contains("deserialization")) {
-            return ConsumeResult.ErrorCategory.DESERIALIZATION_ERROR;
-        }
-        if (message.contains("authentication")) {
-            return ConsumeResult.ErrorCategory.AUTHENTICATION_ERROR;
-        }
-        if (message.contains("authorization")) {
-            return ConsumeResult.ErrorCategory.AUTHORIZATION_ERROR;
-        }
-        if (message.contains("group") || message.contains("coordinator")) {
-            return ConsumeResult.ErrorCategory.GROUP_COORDINATION_ERROR;
-        }
-        if (message.contains("offset") && message.contains("out of range")) {
-            return ConsumeResult.ErrorCategory.OFFSET_OUT_OF_RANGE;
-        }
-
-        return ConsumeResult.ErrorCategory.UNKNOWN_ERROR;
     }
 }

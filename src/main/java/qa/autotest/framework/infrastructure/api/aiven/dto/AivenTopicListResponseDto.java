@@ -1,4 +1,4 @@
-package qa.autotest.app.dto;
+package qa.autotest.framework.infrastructure.api.aiven.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;

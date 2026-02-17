@@ -11,6 +11,10 @@ import java.util.Objects;
  * Domain Result: ConsumeResult
  * <p>
  * Represents the outcome of a message consumption operation.
+ * <p>
+ * Error classification uses the shared {@link KafkaErrorCategory} enum,
+ * which replaces the former inner {@code ErrorCategory} and aligns
+ * consume-side failures with produce-side failures under a single taxonomy.
  */
 @Value
 @Builder
@@ -49,9 +53,12 @@ public class ConsumeResult {
     String errorMessage;
 
     /**
-     * Error category
+     * Error category for failure classification.
+     * Uses the shared {@link KafkaErrorCategory} — consume-specific values:
+     * {@code DESERIALIZATION_ERROR}, {@code GROUP_COORDINATION_ERROR},
+     * {@code OFFSET_OUT_OF_RANGE}.
      */
-    ErrorCategory errorCategory;
+    KafkaErrorCategory errorCategory;
 
     /**
      * Timeout occurred
@@ -103,6 +110,15 @@ public class ConsumeResult {
     }
 
     /**
+     * Business logic: checks if failure is retryable
+     */
+    public boolean isRetryable() {
+        return !success && errorCategory != null && errorCategory.isRetryable();
+    }
+
+    // ── Factory methods ────────────────────────────────────────────────────────
+
+    /**
      * Factory: creates successful result
      */
     public static ConsumeResult success(List<Message> messages) {
@@ -139,7 +155,7 @@ public class ConsumeResult {
     /**
      * Factory: creates failed result
      */
-    public static ConsumeResult failure(String errorMessage, ErrorCategory category) {
+    public static ConsumeResult failure(String errorMessage, KafkaErrorCategory category) {
         return ConsumeResult.builder()
                 .success(false)
                 .messages(List.of())
@@ -150,26 +166,21 @@ public class ConsumeResult {
     }
 
     /**
-     * Error categories for consumption failures
+     * Factory: creates failed result by mapping the exception automatically.
+     * Convenience overload — avoids the caller needing to call
+     * {@link KafkaErrorCategory#fromConsumeException(Throwable)} explicitly.
+     *
+     * @param errorMessage human-readable description of the failure
+     * @param exception    the root cause; drives category selection
+     * @return failed {@code ConsumeResult} with category derived from the exception
      */
-    public enum ErrorCategory {
-        NETWORK_ERROR(true),
-        TIMEOUT_ERROR(true),
-        DESERIALIZATION_ERROR(false),
-        AUTHENTICATION_ERROR(false),
-        AUTHORIZATION_ERROR(false),
-        GROUP_COORDINATION_ERROR(true),
-        OFFSET_OUT_OF_RANGE(false),
-        UNKNOWN_ERROR(true);
-
-        private final boolean retryable;
-
-        ErrorCategory(boolean retryable) {
-            this.retryable = retryable;
-        }
-
-        public boolean isRetryable() {
-            return retryable;
-        }
+    public static ConsumeResult failureFrom(String errorMessage, Throwable exception) {
+        return ConsumeResult.builder()
+                .success(false)
+                .messages(List.of())
+                .messageCount(0)
+                .errorMessage(errorMessage)
+                .errorCategory(KafkaErrorCategory.fromConsumeException(exception))
+                .build();
     }
 }

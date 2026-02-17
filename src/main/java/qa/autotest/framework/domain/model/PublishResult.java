@@ -11,6 +11,10 @@ import java.util.Objects;
  * <p>
  * Represents the outcome of a message publication.
  * Following Result pattern for explicit error handling.
+ * <p>
+ * Error classification uses the shared {@link KafkaErrorCategory} enum,
+ * which replaces the former inner {@code ErrorCategory} and aligns
+ * produce-side failures with consume-side failures under a single taxonomy.
  */
 @Value
 @Builder
@@ -47,9 +51,12 @@ public class PublishResult {
     String errorMessage;
 
     /**
-     * Error category for failure classification
+     * Error category for failure classification.
+     * Uses the shared {@link KafkaErrorCategory} — produce-specific values:
+     * {@code SERIALIZATION_ERROR}, {@code TOPIC_NOT_FOUND},
+     * {@code BROKER_NOT_AVAILABLE}, {@code BUFFER_EXHAUSTED}.
      */
-    ErrorCategory errorCategory;
+    KafkaErrorCategory errorCategory;
 
     /**
      * Exception if publication failed
@@ -108,6 +115,8 @@ public class PublishResult {
         return success && message.hasExplicitPartition();
     }
 
+    // ── Factory methods ────────────────────────────────────────────────────────
+
     /**
      * Factory: creates successful result
      */
@@ -124,7 +133,7 @@ public class PublishResult {
     /**
      * Factory: creates failed result
      */
-    public static PublishResult failure(Message message, String errorMessage, ErrorCategory category) {
+    public static PublishResult failure(Message message, String errorMessage, KafkaErrorCategory category) {
         return PublishResult.builder()
                 .message(message)
                 .success(false)
@@ -134,9 +143,11 @@ public class PublishResult {
     }
 
     /**
-     * Factory: creates failed result with exception
+     * Factory: creates failed result with exception.
+     * Uses {@link KafkaErrorCategory#fromPublishException(Throwable)} for
+     * automatic exception-to-category mapping.
      */
-    public static PublishResult failure(Message message, String errorMessage, ErrorCategory category, Throwable exception) {
+    public static PublishResult failure(Message message, String errorMessage, KafkaErrorCategory category, Throwable exception) {
         return PublishResult.builder()
                 .message(message)
                 .success(false)
@@ -147,27 +158,22 @@ public class PublishResult {
     }
 
     /**
-     * Error categories for failure classification
+     * Factory: creates failed result by mapping the exception automatically.
+     * Convenience overload — avoids the caller needing to call
+     * {@link KafkaErrorCategory#fromPublishException(Throwable)} explicitly.
+     *
+     * @param message      the message that failed to publish
+     * @param errorMessage human-readable description of the failure
+     * @param exception    the root cause; drives category selection
+     * @return failed {@code PublishResult} with category derived from the exception
      */
-    public enum ErrorCategory {
-        NETWORK_ERROR(true),
-        TIMEOUT_ERROR(true),
-        SERIALIZATION_ERROR(false),
-        AUTHENTICATION_ERROR(false),
-        AUTHORIZATION_ERROR(false),
-        TOPIC_NOT_FOUND(false),
-        BROKER_NOT_AVAILABLE(true),
-        BUFFER_EXHAUSTED(true),
-        UNKNOWN_ERROR(true);
-
-        private final boolean retryable;
-
-        ErrorCategory(boolean retryable) {
-            this.retryable = retryable;
-        }
-
-        public boolean isRetryable() {
-            return retryable;
-        }
+    public static PublishResult failureFrom(Message message, String errorMessage, Throwable exception) {
+        return PublishResult.builder()
+                .message(message)
+                .success(false)
+                .errorMessage(errorMessage)
+                .errorCategory(KafkaErrorCategory.fromPublishException(exception))
+                .exception(exception)
+                .build();
     }
 }
