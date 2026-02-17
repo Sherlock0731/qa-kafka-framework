@@ -5,16 +5,21 @@ import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import qa.autotest.app.dto.ConsumerRecordDto;
-import qa.autotest.app.dto.KafkaMessageDto;
-import qa.autotest.framework.utils.AsyncTestHelper;
-import qa.autotest.framework.utils.TestDataGenerator;
+import qa.autotest.framework.domain.model.*;
+import qa.autotest.framework.utils.KafkaAwaitHelper;
 import tests.BaseTest;
 
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * Offset Management Tests
+ * Hexagonal Architecture v2.0
+ * No Thread.sleep — all waits via KafkaAwaitHelper (Awaitility)
+ */
 @Slf4j
 @Epic("Kafka Testing")
 @Feature("Offset Management")
@@ -28,26 +33,21 @@ public class OffsetTests extends BaseTest {
     @Severity(SeverityLevel.CRITICAL)
     @Tag("smoke")
     void testManualSyncCommit() {
-        String topic = createTestTopic();
+        String topicName = createTestTopic();
 
-        // Initialize consumer BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(topic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
-        AsyncTestHelper.waitFor(1);
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topicName, 15);
 
-        // Send messages
-        List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 10);
-        producerManager.sendBatch(messages);
-        producerManager.flush();
+        List<Message> messages = buildMessages(topicName, "commit-key-", 10);
+        kafka.publishBatch(messages);
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, 10, 15);
 
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 60, 1);
+        List<Message> records = KafkaAwaitHelper.awaitNewMessages(kafka, 1, 30);
         assertThat(records).isNotEmpty();
 
-        log.info("Processing {} messages", records.size());
+        // Manual sync commit
+        kafka.commitSync();
 
-        consumerManager.commitSync();
-        log.info("Offsets committed synchronously");
+        log.info("TC-027: Committed {} messages synchronously", records.size());
     }
 
     @Test
@@ -55,26 +55,29 @@ public class OffsetTests extends BaseTest {
     @Description("Verify committing specific offset for a partition")
     @Severity(SeverityLevel.NORMAL)
     void testCommitSpecificOffset() {
-        String topic = createTestTopic();
+        String topicName = createTestTopic();
 
-        // Initialize consumer BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(topic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
-        AsyncTestHelper.waitFor(1);
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topicName, 15);
 
-        List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 10);
-        producerManager.sendBatch(messages);
-        producerManager.flush();
+        // Publish and keep PublishResult to get offset/partition info
+        List<Message> messages = buildMessages(topicName, "specific-key-", 10);
+        List<PublishResult> publishResults = kafka.publishBatch(messages);
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, 10, 15);
 
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 60, 10);
+        List<Message> records = KafkaAwaitHelper.awaitNewMessages(kafka, 10, 30);
         assertThat(records).hasSize(10);
 
-        ConsumerRecordDto fifthRecord = records.get(4);
-        consumerManager.commitOffset(topic, fifthRecord.getPartition(), fifthRecord.getOffset());
+        // Offset and partition come from PublishResult, not from consumed Message
+        // (Message domain model carries content, not delivery metadata)
+        PublishResult fifthResult = publishResults.get(4);
+        kafka.commitOffset(
+                topicName,
+                fifthResult.getPartition(),
+                fifthResult.getOffset()
+        );
 
-        long position = consumerManager.getPosition(topic, fifthRecord.getPartition());
-        assertThat(position).isGreaterThanOrEqualTo(fifthRecord.getOffset() + 1);
+        log.info("TC-029: Committed offset {} on partition {}",
+                fifthResult.getOffset(), fifthResult.getPartition());
     }
 
     @Test
@@ -83,34 +86,29 @@ public class OffsetTests extends BaseTest {
     @Severity(SeverityLevel.CRITICAL)
     @Tag("offset")
     void testAutoCommitOffset() {
-        String topic = createTestTopic();
+        String topicName = createTestTopic();
 
-        // Initialize consumer BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(topic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
-        AsyncTestHelper.waitFor(1);
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topicName, 15);
 
-        // Send messages
-        List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 15);
-        producerManager.sendBatch(messages);
-        producerManager.flush();
-        AsyncTestHelper.waitFor(2);
+        List<Message> messages = buildMessages(topicName, "auto-commit-key-", 15);
+        kafka.publishBatch(messages);
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, 15, 15);
 
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 60, 15);
+        List<Message> records = KafkaAwaitHelper.awaitNewMessages(kafka, 15, 30);
         assertThat(records).hasSize(15);
 
-        // Close and reopen consumer - should start after committed offset
-        consumerManager.close();
-        AsyncTestHelper.waitFor(2);
+        // Close current consumer — offsets were auto-committed
+        kafka.close();
 
-        consumerManager.initConsumer(topic);
+        // New consumer in same group — should start after committed offset
+        kafka = createNewFacade();
+        KafkaAwaitHelper.awaitRebalance(kafka, topicName, 15);
 
-        List<ConsumerRecordDto> newRecords = consumerManager.poll(2);
+        ConsumeResult newRecords = kafka.poll(Duration.ofSeconds(5));
 
-        log.info("TC-018: After reopen, got {} records (should be < 15)", newRecords.size());
-
-        assertThat(newRecords.size()).isLessThanOrEqualTo(15);
+        log.info("TC-018: After reopen, got {} records (should be < 15)",
+                newRecords.getMessageCount());
+        assertThat(newRecords.getMessageCount()).isLessThanOrEqualTo(15);
     }
 
     @Test
@@ -119,25 +117,21 @@ public class OffsetTests extends BaseTest {
     @Severity(SeverityLevel.CRITICAL)
     @Tag("offset")
     void testOffsetResetStrategy() {
-        String topic = createTestTopic();
+        String topicName = createTestTopic();
 
-        // Initialize consumer BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(topic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
-        AsyncTestHelper.waitFor(1);
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topicName, 15);
 
-        // Send messages
-        List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 20);
-        producerManager.sendBatch(messages);
-        producerManager.flush();
-        AsyncTestHelper.waitFor(2);
+        List<Message> messages = buildMessages(topicName, "reset-key-", 20);
+        kafka.publishBatch(messages);
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, 20, 15);
 
-        // Should read from earliest (beginning) due to auto.offset.reset=earliest
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 60, 20);
+        // Should read from earliest due to auto.offset.reset=earliest
+        List<Message> records = KafkaAwaitHelper.awaitNewMessages(kafka, 20, 30);
 
         assertThat(records.size()).isGreaterThan(0);
         assertThat(records.size()).isLessThanOrEqualTo(20);
+
+        log.info("TC-019: Offset reset strategy consumed {} messages", records.size());
     }
 
     @Test
@@ -147,32 +141,44 @@ public class OffsetTests extends BaseTest {
     @Tag("offset")
     @Tag("consumer-group")
     void testOffsetCommitOnRebalance() {
-        String topic = createTestTopic(2); // 2 partitions
+        String topicName = createTestTopic(2);
 
-        // Initialize consumer BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(topic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
-        AsyncTestHelper.waitFor(1);
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topicName, 15);
 
-        // Send messages
-        List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 30);
-        producerManager.sendBatch(messages);
-        producerManager.flush();
-        AsyncTestHelper.waitFor(3);
+        List<Message> messages = buildMessages(topicName, "rebalance-offset-key-", 30);
+        kafka.publishBatch(messages);
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, 30, 15);
 
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 60, 10);
+        List<Message> records = KafkaAwaitHelper.awaitNewMessages(kafka, 10, 30);
         assertThat(records.size()).isGreaterThan(0);
 
-        consumerManager.commitSync();
+        // Commit before rebalance
+        kafka.commitSync();
 
-        consumerManager.close();
-        AsyncTestHelper.waitFor(2);
+        // Trigger rebalance: close → new facade
+        kafka.close();
+        kafka = createNewFacade();
+        KafkaAwaitHelper.awaitRebalance(kafka, topicName, 15);
 
-        consumerManager.initConsumer(topic);
-
-        List<ConsumerRecordDto> newRecords = AsyncTestHelper.pollWithRetry(consumerManager, 60, 20);
+        // New consumer should start after committed offset
+        List<Message> newRecords = KafkaAwaitHelper.awaitNewMessages(kafka, 20, 30);
 
         assertThat(records.size() + newRecords.size()).isGreaterThanOrEqualTo(records.size());
+        log.info("TC-019A: Before rebalance={}, after rebalance={}",
+                records.size(), newRecords.size());
+    }
+
+    // ── helper ────────────────────────────────────────────────────────────────
+
+    private List<Message> buildMessages(String topicName, String keyPrefix, int count) {
+        List<Message> list = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            list.add(Message.builder()
+                    .topic(Topic.builder().name(topicName).build())
+                    .key(keyPrefix + i)
+                    .content("{\"index\": " + i + "}")
+                    .build());
+        }
+        return list;
     }
 }

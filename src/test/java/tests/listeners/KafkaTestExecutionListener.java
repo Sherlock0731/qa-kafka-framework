@@ -19,12 +19,12 @@ import java.time.Instant;
 public class KafkaTestExecutionListener implements BeforeEachCallback, AfterEachCallback {
 
     private static final String START_TIME_KEY = "startTime";
-    
+
     @Override
     public void beforeEach(ExtensionContext context) {
         Instant startTime = Instant.now();
         context.getStore(ExtensionContext.Namespace.GLOBAL).put(START_TIME_KEY, startTime);
-        
+
         String testName = getTestName(context);
         log.info("▶ Starting test: {}", testName);
         log.debug("Thread: {}", Thread.currentThread().getName());
@@ -34,13 +34,13 @@ public class KafkaTestExecutionListener implements BeforeEachCallback, AfterEach
     public void afterEach(ExtensionContext context) {
         Instant startTime = context.getStore(ExtensionContext.Namespace.GLOBAL)
                 .get(START_TIME_KEY, Instant.class);
-        
+
         if (startTime != null) {
             Duration duration = Duration.between(startTime, Instant.now());
             String testName = getTestName(context);
-            
+
             log.info("◼ Finished test: {} in {} ms", testName, duration.toMillis());
-            
+
             attachExecutionTime(duration);
         }
     }
@@ -55,7 +55,7 @@ public class KafkaTestExecutionListener implements BeforeEachCallback, AfterEach
         String methodName = context.getTestMethod()
                 .map(m -> m.getName())
                 .orElse("unknown");
-        
+
         return className + "." + methodName;
     }
 
@@ -66,7 +66,7 @@ public class KafkaTestExecutionListener implements BeforeEachCallback, AfterEach
         String timeInfo = String.format("Test Execution Time: %d ms (%d seconds)",
                 duration.toMillis(),
                 duration.getSeconds());
-        
+
         Allure.addAttachment("Execution Time", "text/plain",
                 new ByteArrayInputStream(timeInfo.getBytes(StandardCharsets.UTF_8)), "txt");
     }

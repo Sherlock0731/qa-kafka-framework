@@ -11,21 +11,21 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Getter
 public class RetryContext {
-    
+
     private final int attempt;
     private final long backoffMs;
     private Throwable lastError;
     private boolean success;
     private long startTime;
     private long endTime;
-    
+
     public RetryContext(int attempt, long backoffMs) {
         this.attempt = attempt;
         this.backoffMs = backoffMs;
         this.success = false;
         this.startTime = System.currentTimeMillis();
     }
-    
+
     /**
      * Mark retry as successful
      */
@@ -33,7 +33,7 @@ public class RetryContext {
         this.success = true;
         this.endTime = System.currentTimeMillis();
     }
-    
+
     /**
      * Mark retry as failed with exception
      */
@@ -42,7 +42,7 @@ public class RetryContext {
         this.lastError = error;
         this.endTime = System.currentTimeMillis();
     }
-    
+
     /**
      * Get duration of this retry attempt
      */
@@ -52,7 +52,7 @@ public class RetryContext {
         }
         return endTime - startTime;
     }
-    
+
     /**
      * Attach retry information to Allure report
      */
@@ -62,17 +62,17 @@ public class RetryContext {
             Allure.parameter("Backoff (ms)", backoffMs);
             Allure.parameter("Duration (ms)", getDuration());
             Allure.parameter("Success", success);
-            
+
             if (lastError != null) {
                 Allure.parameter("Error", lastError.getClass().getSimpleName());
                 Allure.parameter("Error Message", lastError.getMessage());
             }
         });
-        
+
         log.debug("Retry context attached to Allure - Attempt: {}, Success: {}, Duration: {} ms",
-            attempt, success, getDuration());
+                attempt, success, getDuration());
     }
-    
+
     /**
      * Attach as Allure step with custom name
      */
@@ -83,7 +83,7 @@ public class RetryContext {
             Allure.parameter("Backoff (ms)", backoffMs);
             Allure.parameter("Duration (ms)", getDuration());
             Allure.parameter("Success", success);
-            
+
             if (lastError != null) {
                 Allure.parameter("Error Type", lastError.getClass().getSimpleName());
                 Allure.parameter("Error Message", lastError.getMessage());
