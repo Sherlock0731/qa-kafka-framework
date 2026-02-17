@@ -1,384 +1,292 @@
-# Фреймворк автотестирования Kafka
+# Kafka Test Automation Framework
 
 [![Java](https://img.shields.io/badge/Java-17-orange.svg)](https://www.oracle.com/java/)
 [![JUnit](https://img.shields.io/badge/JUnit-5.10.1-red.svg)](https://junit.org/junit5/)
+[![Kafka](https://img.shields.io/badge/kafka--clients-3.6.1-blue.svg)](https://kafka.apache.org/)
 [![Rest-Assured](https://img.shields.io/badge/Rest--Assured-5.4.0-purple.svg)](https://rest-assured.io/)
 [![Allure](https://img.shields.io/badge/Allure-2.25.0-yellow.svg)](http://allure.qatools.ru/)
+[![Maven](https://img.shields.io/badge/Maven-3.8+-red.svg)](https://maven.apache.org/)
 
-![Tests](https://github.com/Sherlock0731/qa-kafka-framework/actions/workflows/test-all.yml/badge.svg)    
+![Tests](https://github.com/Sherlock0731/qa-kafka-framework/actions/workflows/test-all.yml/badge.svg)
 [![Allure Report](https://img.shields.io/badge/Allure-Report-orange)](https://sherlock0731.github.io/qa-kafka-framework/)
 
-Комплексный многопоточный фреймворк для тестирования Apache Kafka на Java 17, JUnit 5, AssertJ и Allure Reports.
+Комплексный фреймворк автотестирования Apache Kafka на Java 17 с поддержкой SSL/TLS, параллельного выполнения и интеграции с Aiven Cloud Kafka.
+
+---
 
 ## Возможности
 
-- **Многопоточное выполнение** с потокобезопасными менеджерами
-- **Event-Driven паттерны тестирования** (Event-Driven, Saga, Outbox)
-- **Кроссплатформенность** (Windows, Linux, macOS)
-- **Асинхронное тестирование** с Awaitility (без Thread.sleep)
-- **Поддержка SSL/TLS** для безопасного подключения к Kafka
-- **Отчеты Allure** для визуализации результатов
-- **Запуск по тегам** (запуск тестов по категориям)
-- **Интеграция с GitHub Actions** для CI/CD
-- **Docker и Docker Compose** для контейнеризации
+- **SSL/TLS из коробки** — PKCS12 (keystore) + JKS (truststore) для Aiven и любых защищённых кластеров
+- **Потокобезопасные менеджеры** — `ThreadLocal` + `WeakReference`-трекинг предотвращают утечки памяти при параллельном запуске
+- **Глобальная очистка ресурсов** — `closeAll()` закрывает все producer/consumer из любого потока ForkJoinPool
+- **Retry с exponential backoff** — создание топиков и polling сообщений с повторными попытками (до 5 раз)
+- **Богатая иерархия исключений** — 7 типов специализированных исключений с контекстной информацией и категоризацией для Allure
+- **Aiven API Controller** — управление топиками через REST API Aiven (Bearer-token авторизация)
+- **TestMetricsCollector** — время отправки, polling, категории ошибок, процент успешных тестов
+- **Allure listeners** — `AllureKafkaListener` и `KafkaTestExecutionListener` для обогащения отчётов
+- **66 тест-кейсов** покрывают 11 функциональных областей Kafka
+- **CI/CD через GitHub Actions** с публикацией Allure-отчёта на GitHub Pages
+- **Docker / Docker Compose** для запуска в контейнере
 
-## Предварительные требования
+---
 
-- Java 17+
-- Maven 3.8+
-- Apache Kafka (например, Aiven Cloud)
-- SSL сертификаты (truststore и keystore)
-- Docker (опционально)
+## Архитектура
+
+```
+src/
+├── main/java/qa/autotest/
+│   ├── app/dto/                    # DTO: KafkaMessageDto, ConsumerRecordDto, TopicPartitionDto
+│   └── framework/
+│       ├── api/                    # AivenApiController (REST Assured)
+│       ├── config/                 # KafkaConfig (Owner lib), ConfigFactory
+│       ├── exceptions/             # 7 типов исключений с ErrorType
+│       ├── kafka/                  # KafkaProducerManager, KafkaConsumerManager,
+│       │                           # KafkaTopicManager, KafkaTopicCleanupManager,
+│       │                           # KafkaPropertiesBuilder
+│       ├── metrics/                # TestMetricsCollector
+│       ├── patterns/               # EventDrivenHelper
+│       └── utils/                  # AsyncTestHelper, RetryContext, TestDataGenerator
+└── test/java/tests/
+    ├── BaseTest.java               # Общий setup/teardown + глобальная очистка ресурсов
+    ├── listeners/                  # AllureKafkaListener, KafkaTestExecutionListener
+    ├── producer/                   # ProducerTests       — 12 тест-кейсов
+    ├── consumer/                   # ConsumerTests       — 12 тест-кейсов
+    ├── transactions/               # TransactionsTests   —  9 тест-кейсов
+    ├── idempotence/                # IdempotenceTests    —  7 тест-кейсов
+    ├── offset/                     # OffsetTests         —  5 тест-кейсов
+    ├── partitioning/               # PartitioningTests   —  5 тест-кейсов
+    ├── performance/                # PerformanceTests    —  4 тест-кейса
+    ├── ordering/                   # OrderingTests       —  3 тест-кейса
+    ├── dlq/                        # DlqTests            —  3 тест-кейса
+    ├── errorhandling/              # ErrorHandlingTests  —  5 тест-кейсов
+    └── consumergroup/              # ConsumerGroupTests  —  1 тест-кейс
+```
+
+---
+
+## Требования
+
+| Компонент | Версия |
+|-----------|--------|
+| Java | 17+ |
+| Maven | 3.8+ |
+| Apache Kafka | 3.x |
+| Aiven Cloud Kafka | Free tier или выше |
+
+SSL-сертификаты от брокера (truststore JKS + keystore PKCS12) обязательны.
+
+---
 
 ## Быстрый старт
 
-### Вариант 1: Локальный запуск
+### 1. Получение SSL-сертификатов
 
-#### 1. Настройка SSL сертификатов
+В консоли Aiven скачайте:
+- `kafka.truststore.jks` — CA-сертификат брокера
+- `kafka.keystore.p12` — клиентский сертификат + ключ
 
-Поместите ваши Kafka SSL сертификаты:
-- `C:\\kafka_key\\` (Windows)
-- `~/kafka_key/` (Linux/Mac)
+Разместите файлы:
+- Windows: `C:\AUTO\kafka_key\`
+- Linux/macOS: `~/kafka_key/`
 
-#### 2. Установка паролей
+### 2. Настройка подключения
 
-**Вариант А: Переменные окружения** (Рекомендуется для CI/CD)
+**Вариант А — Переменные окружения** (рекомендуется для CI/CD):
+
 ```bash
+export KAFKA_BOOTSTRAP_SERVERS=kafka-xxxx.aivencloud.com:28330
 export KAFKA_SSL_TRUSTSTORE_PASSWORD=ваш_пароль
 export KAFKA_SSL_KEYSTORE_PASSWORD=ваш_пароль
-export KAFKA_REST_API_PASSWORD=ваш_пароль
+export KAFKA_SSL_KEY_PASSWORD=ваш_пароль
+export AIVEN_API_TOKEN=ваш_токен
 ```
 
-**Вариант Б: System Properties** (Для локальной разработки)
-```bash
-mvn test -Dkafka.ssl.truststore.password=ваш_пароль \
-         -Dkafka.ssl.keystore.password=ваш_пароль
+**Вариант Б — Файл `src/main/resources/config/local.properties`**:
+
+```properties
+kafka.bootstrap.servers=kafka-xxxx.aivencloud.com:28330
+kafka.security.protocol=SSL
+kafka.ssl.truststore.location=/path/to/kafka.truststore.jks
+kafka.ssl.truststore.password=ваш_пароль
+kafka.ssl.keystore.location=/path/to/kafka.keystore.p12
+kafka.ssl.keystore.password=ваш_пароль
+kafka.ssl.key.password=ваш_пароль
+aiven.api.token=ваш_токен
+aiven.project.name=ваш-проект
+aiven.service.name=ваш-сервис
 ```
 
-#### 3. Запуск тестов
-
-**Запустить все тесты (последовательно):**
-```bash
-mvn clean test
-```
-
-**Запустить конкретную группу тестов:**
-```bash
-mvn clean test -Dgroups=producer
-mvn clean test -Dgroups=consumer
-mvn clean test -Dgroups=smoke
-```
-
-**Запустить параллельно (4 потока):**
-```bash
-mvn clean test -Pparallel -Dthread.count=4
-```
-
-### Вариант 2: Запуск в Docker
-
-#### 1. Подготовка
+### 3. Запуск тестов
 
 ```bash
-# Создайте директорию для сертификатов
-mkdir kafka_key
+# Все тесты (последовательно)
+mvn test
 
-# Скопируйте ваши сертификаты
-cp /путь/к/kafka.truststore.jks kafka_key/
-cp /путь/к/kafka.keystore.p12 kafka_key/
+# Smoke-тесты
+mvn test -Dtest.groups=smoke
 
-# Создайте .env файл
-cp .env.example .env
-# Отредактируйте .env и укажите пароли
+# По категории (Maven профиль)
+mvn test -P producer
+mvn test -P consumer
+mvn test -P transactions
+
+# Параллельный запуск с 4 потоками
+mvn test -P parallel -Dthread.count=4
+
+# Через bash-скрипт
+./run-tests.sh
+./run-tests.sh --groups smoke
+./run-tests.sh --parallel 4
 ```
 
-#### 2. Запуск тестов в Docker
+### 4. Allure-отчёт
 
 ```bash
-# Все тесты
-./docker/docker-run.sh
-
-# Smoke тесты
-./docker/docker-run.sh --smoke
-
-# Параллельное выполнение
-./docker/docker-run.sh --parallel
-
-# С пересборкой образа
-./docker/docker-run.sh --build
+mvn allure:report   # генерация отчёта
+mvn allure:serve    # запуск в браузере
 ```
 
-#### 3. Просмотр отчетов
+---
 
-```bash
-./docker/docker-run.sh --report
-# Откройте http://localhost:5050
-# Логин: admin, Пароль: admin
-```
+## Тест-сьюты
 
-## Категории тестов и теги
+| Тег | Класс | Кейсов | Описание |
+|-----|-------|--------|----------|
+| `producer` | `ProducerTests` | 12 | Sync/async отправка, headers, acks=all, retry, batch, метрики |
+| `consumer` | `ConsumerTests` | 12 | earliest/latest, headers, seek, pause/resume, lag |
+| `transactions` | `TransactionsTests` | 9 | Commit, rollback, exactly-once, read_committed, multi-topic |
+| `idempotence` | `IdempotenceTests` | 7 | Дедупликация, producer ID, exactly-once, retry без дублей |
+| `offset` | `OffsetTests` | 5 | Manual commit, seek, auto-commit, offset при rebalance |
+| `partitioning` | `PartitioningTests` | 5 | Round-robin, hash by key, смена числа партиций |
+| `performance` | `PerformanceTests` | 4 | Throughput, E2E latency, batch size, consumer lag |
+| `ordering` | `OrderingTests` | 3 | Порядок в партиции, между партициями, для keyed messages |
+| `dlq` | `DlqTests` | 3 | Poison pill, DLQ routing с метаданными, retry из DLQ |
+| `error-handling` | `ErrorHandlingTests` | 5 | Serialization, network, broker unavailable, topic not found |
+| `consumer-group` | `ConsumerGroupTests` | 1 | Rebalance группы потребителей |
+| `smoke` | (несколько) | 7 | Быстрая проверка ключевой функциональности |
 
-| Тег | Описание | Кол-во тестов |
-|-----|----------|---------------|
-| `producer` | Тесты отправки сообщений | 8 |
-| `consumer` | Тесты получения сообщений | 7 |
-| `idempotence` | Идемпотентность и дубликаты | 5 |
-| `ordering` | Упорядоченность сообщений | 5 |
-| `offset` | Управление offset'ами | 6 |
-| `error-handling` | Обработка ошибок и retry | 6 |
-| `partitioning` | Партиционирование | 5 |
-| `consumer-group` | Consumer groups | 6 |
-| `dlq` | Dead Letter Queue | 5 |
-| `smoke` | Критические smoke тесты | ~15 |
-| `critical` | Высокоприоритетные тесты | ~30 |
+**Итого: 66 тест-кейсов** (TC-001 — TC-049)
 
-## Запуск тестов по тегам
-
-**Один тег:**
-```bash
-mvn test -Dgroups=smoke
-```
-
-**Несколько тегов (логика ИЛИ):**
-```bash
-mvn test -Dgroups="producer | consumer"
-```
-
-**Несколько тегов (логика И):**
-```bash
-mvn test -Dgroups="producer & critical"
-```
-
-**Исключение тегов:**
-```bash
-mvn test -Dgroups="!slow"
-```
-
-## Параллельное выполнение
-
-Фреймворк поддерживает три режима параллельного выполнения:
-
-### 1. Последовательное (По умолчанию)
-```bash
-mvn test -Psequential
-```
-
-### 2. Параллельное (JUnit 5 параллельное выполнение)
-```bash
-mvn test -Pparallel -Dthread.count=4
-```
-
-### 3. Параллельное строгое (Fork-based выполнение)
-```bash
-mvn test -Pparallel-strict -Dthread.count=4
-```
-
-## Безопасность
-
-### ВАЖНО: Защита сертификатов Kafka
-
-**Файлы `*.jks` и `*.p12` НИКОГДА не должны попадать в Git!**
-
-#### Быстрая настройка:
-
-1. **Локально:** Храните сертификаты вне репозитория
-   ```bash
-   # Создайте безопасную директорию
-   mkdir -p ~/secure/kafka-certs
-   cp kafka.keystore.p12 ~/secure/kafka-certs/
-   cp kafka.truststore.jks ~/secure/kafka-certs/
-   
-   # Установите переменные окружения
-   export KAFKA_SSL_TRUSTSTORE_PASSWORD="ваш_пароль"
-   export KAFKA_SSL_KEYSTORE_PASSWORD="ваш_пароль"
-   ```
-
-2. **GitHub Actions:** Используйте GitHub Secrets
-   - См. подробную инструкцию: [docs/GITHUB_SECRETS_SETUP.md](docs/GITHUB_SECRETS_SETUP.md)
-   - Нужно добавить 6 секретов (сертификаты в Base64 + пароли)
-
-3. **Git Hook:** Установите защиту от случайных коммитов
-   ```bash
-   ./setup-git-hooks.sh
-   ```
-
-**Полное руководство:** [docs/SECURITY_GUIDE.md](docs/SECURITY_GUIDE.md)
+---
 
 ## Конфигурация
 
-### Локальная разработка
-Отредактируйте `src/main/resources/config/local.properties`:
-```properties
-kafka.ssl.truststore.location=C:\\kafka_key\\kafka.truststore.jks
-kafka.ssl.keystore.location=C:\\kafka_key\\kafka.keystore.p12
-```
-# Aiven API Configuration (для автоматической очистки топиков)
-aiven.api.token=ваш_токен_aiven
-aiven.project.name=ваш_проект
-aiven.service.name=ваш_сервис
+Приоритет загрузки (от высокого к низкому):
+1. System properties (`-Dkey=value`)
+2. Переменные окружения
+3. `config/${env}.properties`
+4. `config/default.properties`
 
-### CI/CD окружение
-Отредактируйте `src/main/resources/config/ci.properties` или используйте переменные окружения в GitHub Actions.
+Ключевые параметры:
 
-### Автоматическая очистка топиков через Aiven API
+| Параметр | По умолчанию | Описание |
+|----------|-------------|----------|
+| `kafka.security.protocol` | `SSL` | Протокол безопасности |
+| `kafka.ssl.keystore.type` | `PKCS12` | Тип keystore |
+| `kafka.ssl.truststore.type` | `JKS` | Тип truststore |
+| `kafka.producer.acks` | `all` | Режим подтверждения |
+| `kafka.producer.retries` | `3` | Количество retry |
+| `kafka.producer.enable.idempotence` | `true` | Идемпотентный producer |
+| `kafka.consumer.auto.offset.reset` | `earliest` | Стратегия сброса offset |
+| `kafka.consumer.enable.auto.commit` | `false` | Ручной commit offset'ов |
+| `kafka.consumer.session.timeout.ms` | `30000` | Таймаут сессии (мс) |
+| `kafka.consumer.max.poll.records` | `500` | Макс. записей за poll |
+| `kafka.test.topic.prefix` | `qa-test` | Префикс тестовых топиков |
+| `kafka.test.topic.partitions` | `1` | Партиций по умолчанию |
+| `test.timeout.seconds` | `30` | Таймаут async-операций |
+| `thread.count` | `1` | Потоков параллельного запуска |
 
-Фреймворк поддерживает автоматическую очистку тестовых топиков после завершения всех тестов через Aiven REST API:
+---
 
-**Как это работает:**
-1. После каждого теста - стандартная очистка через Kafka Admin API
-2. После всех тестов - глобальная очистка через Aiven REST API (удаляет все топики с префиксом `qa-test`)
+## Maven профили
 
-**Необходимая конфигурация:**
-
-```properties
-# В local.properties или через переменные окружения
-aiven.api.token=ваш_токен_aiven
-aiven.project.name=название_вашего_проекта
-aiven.service.name=название_вашего_kafka_сервиса
-test.cleanup.topics=true
-```
-
-**Переменные окружения для CI/CD:**
 ```bash
-export AIVEN_API_TOKEN=your_token
-export AIVEN_PROJECT_NAME=your_project
-export AIVEN_SERVICE_NAME=your_service
+# Окружение
+mvn test -P local           # по умолчанию
+mvn test -P ci
+
+# Группы тестов
+mvn test -P producer
+mvn test -P consumer
+mvn test -P idempotence
+mvn test -P ordering
+mvn test -P offset
+mvn test -P error-handling
+mvn test -P partitioning
+mvn test -P consumer-group
+mvn test -P dlq
+mvn test -P smoke
+mvn test -P critical
+
+# Параллельное выполнение
+mvn test -P parallel -Dthread.count=4
+
+# Проверка безопасности зависимостей (OWASP NVD)
+mvn verify -P security-check -DnvdApiKey=ВАШ_КЛЮЧ
 ```
 
-**Получение токена Aiven:**
-1. Войдите в Aiven Console: https://console.aiven.io/
-2. Перейдите в User Information → Authentication → Generate token
-3. Скопируйте токен и сохраните в конфигурацию
-
-**Отключение автоматической очистки:**
-```properties
-test.cleanup.topics=false
-```
-
-## Отчеты Allure
-
-**Сгенерировать и открыть отчет:**
-```bash
-mvn clean test
-mvn allure:report
-mvn allure:serve
-```
-
-**В Docker:**
-```bash
-./docker/docker-run.sh --report
-```
-
-## Структура проекта
-
-```
-kafka-test-framework/
-├── docker/                      # Docker файлы
-│   ├── Dockerfile              # Образ для тестов
-│   ├── docker-compose.yml      # Композиция сервисов
-│   ├── docker-run.sh          # Скрипт запуска
-│   └── README.md              # Docker документация
-├── docs/                       # Документация
-│   ├── ARCHITECTURE.md        # Архитектура
-│   ├── RUN_INSTRUCTIONS.md    # Инструкции по запуску
-│   └── TEST_CASES_MATRIX.md   # Матрица тест-кейсов
-├── src/
-│   ├── main/
-│   │   ├── java/qa/autotest/
-│   │   │   ├── app/dto/              # Data Transfer Objects
-│   │   │   └── framework/
-│   │   │       ├── config/           # Управление конфигурацией
-│   │   │       ├── kafka/            # Kafka менеджеры
-│   │   │       ├── patterns/         # Паттерны тестирования
-│   │   │       └── utils/            # Утилиты
-│   │   └── resources/
-│   │       ├── config/               # Properties файлы
-│   │       └── logback.xml           # Конфигурация логирования
-│   └── test/
-│       └── java/tests/
-│           ├── BaseTest.java         # Базовый тестовый класс
-│           ├── producer/             # Producer тесты
-│           ├── consumer/             # Consumer тесты
-│           ├── idempotence/          # Идемпотентность
-│           ├── ordering/             # Упорядоченность
-│           ├── offset/               # Offset тесты
-│           ├── partitioning/         # Партиционирование
-│           └── dlq/                  # DLQ тесты
-├── .github/workflows/          # GitHub Actions
-├── pom.xml                     # Maven конфигурация
-├── README.md                   # Эта документация
-├── SUMMARY.md                  # Сводка проекта
-└── run-tests.sh               # Скрипт запуска тестов
-```
-
-## Реализованные лучшие практики
-
-1. **Без Thread.sleep()** - используется Awaitility для асинхронных ожиданий
-2. **Потокобезопасный дизайн** - ThreadLocal для Kafka клиентов
-3. **Независимые тесты** - каждый тест создает уникальные топики
-4. **Правильная очистка** - @AfterEach всегда закрывает ресурсы
-5. **DTO паттерн** - чистое разделение моделей данных
-6. **Event-Driven паттерны** - поддержка Saga, Outbox паттернов
-7. **Комплексное логирование** - многопоточное логирование с Logback
-8. **Docker контейнеризация** - полная изоляция окружения
+---
 
 ## Docker
 
-Полная поддержка Docker и Docker Compose:
-
 ```bash
-# Сборка образа
-docker build -t kafka-test-framework -f docker/Dockerfile .
+# Запуск в контейнере
+cd docker
+docker-compose up --build
 
-# Запуск через docker-compose
-docker-compose -f docker/docker-compose.yml run kafka-tests
-
-# Запуск через helper скрипт
-./docker/docker-run.sh --parallel
+# С переменными окружения
+KAFKA_BOOTSTRAP_SERVERS=... AIVEN_API_TOKEN=... docker-compose up
 ```
 
-Подробнее см. [docker/README.md](docker/README.md)
+Подробнее: [docker/README.md](docker/README.md)
 
-## Безопасность
+---
 
-1. **SSL/TLS поддержка**
-   - Truststore для верификации сервера
-   - Keystore для клиентского сертификата
-   - Mutual TLS аутентификация
+## CI/CD
 
-2. **Управление секретами**
-   - Переменные окружения
-   - GitHub Secrets
-   - Нет захардкоженных паролей
+Пайплайн GitHub Actions запускается при каждом push и PR:
 
-3. **Работа с сертификатами**
-   - Исключены из репозитория (.gitignore)
-   - Base64 кодирование для CI/CD
-   - Безопасное хранение
+1. Сборка и компиляция
+2. Запуск тест-сьютов
+3. Генерация Allure-отчёта
+4. Публикация на GitHub Pages
+
+Необходимые GitHub Secrets: `KAFKA_BOOTSTRAP_SERVERS`, `KAFKA_SSL_TRUSTSTORE_PASSWORD`, `KAFKA_SSL_KEYSTORE_PASSWORD`, `KAFKA_SSL_KEY_PASSWORD`, `AIVEN_API_TOKEN`.
+
+Подробнее: [docs/GITHUB_SECRETS_SETUP.md](docs/GITHUB_SECRETS_SETUP.md)
+
+---
 
 ## Документация
 
-1. **README.md** - Обзор проекта и быстрый старт
-2. **docker/README.md** - Docker документация
-3. **docs/ARCHITECTURE.md** - Архитектура системы
-4. **docs/RUN_INSTRUCTIONS.md** - Детальные инструкции по запуску
-5. **docs/TEST_CASES_MATRIX.md** - Полная матрица тест-кейсов
-6. **SUMMARY.md** - Итоговая сводка проекта
+| Документ | Описание |
+|----------|----------|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Детальная архитектура фреймворка |
+| [docs/RUN_INSTRUCTIONS.md](docs/RUN_INSTRUCTIONS.md) | Инструкция по запуску всех вариантов |
+| [docs/DOCKER.md](docs/DOCKER.md) | Docker и Docker Compose |
+| [docs/SECURITY_GUIDE.md](docs/SECURITY_GUIDE.md) | Настройка SSL/TLS |
+| [docs/GITHUB_SECRETS_SETUP.md](docs/GITHUB_SECRETS_SETUP.md) | Настройка CI/CD секретов |
+| [docs/TEST_CASES_MATRIX.md](docs/TEST_CASES_MATRIX.md) | Матрица всех тест-кейсов |
+| [SUMMARY.md](SUMMARY.md) | Резюме проекта |
 
-## Вклад в проект
+---
 
-1. Форкните репозиторий
-2. Создайте feature ветку
-3. Добавьте тесты для новых функций
-4. Убедитесь, что все тесты проходят
-5. Создайте Pull Request
+## Стек технологий
 
-Подробная документация доступна в папке `docs/`:
-
-- [Архитектура](docs/ARCHITECTURE.md)
-- [Инструкция по запуску](docs/RUN_INSTRUCTIONS.md)
-- [Матрица тест-кейсов](docs/TEST_CASES_MATRIX.md)
-- [Docker Help](docker/README.md)
-- [Итоговая сводка проекта](SUMMARY.md)
+| Библиотека | Версия | Назначение |
+|-----------|--------|-----------|
+| `kafka-clients` | 3.6.1 | Producer, Consumer, AdminClient |
+| `junit-jupiter` | 5.10.1 | Тестовый фреймворк |
+| `assertj-core` | 3.24.2 | Fluent assertions |
+| `allure-junit5` | 2.25.0 | Allure-отчёты |
+| `allure-rest-assured` | 2.25.0 | Allure-фильтр для REST Assured |
+| `rest-assured` | 5.4.0 | HTTP-тестирование (Aiven API) |
+| `awaitility` | 4.2.0 | Async assertions |
+| `owner` | 1.0.12 | Конфигурация через properties + env |
+| `lombok` | 1.18.30 | Builder, @Slf4j, @Data |
+| `jackson-databind` | 2.16.1 | JSON-сериализация |
+| `logback-classic` | 1.4.14 | Логирование |
+| `gson` | 2.10.1 | JSON в metrics/attachments |
 
 ## License
 

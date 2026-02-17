@@ -1,286 +1,391 @@
-# Инструкции по запуску Kafka Test Framework
+# RUN_INSTRUCTIONS — Kafka Test Automation Framework
 
-## Настройка предварительных требований
+## Предварительные требования
 
-### 1. Установка Java 17
+| Компонент | Минимальная версия | Проверка |
+|-----------|-------------------|---------|
+| Java (JDK) | 17 | `java -version` |
+| Maven | 3.8 | `mvn -version` |
+| Aiven Cloud Kafka | Free tier | Доступ к консоли |
+| SSL-сертификаты | — | Скачать из консоли Aiven |
+| Docker (опционально) | 20.10 | `docker -v` |
+
+---
+
+## Шаг 1 — SSL-сертификаты
+
+### Получение из Aiven
+
+1. Откройте [console.aiven.io](https://console.aiven.io)
+2. Выберите ваш Kafka-сервис
+3. Во вкладке **Overview** → **Connection information** скачайте:
+   - `kafka.truststore.jks` — CA-сертификат брокера
+   - `kafka.keystore.p12` — клиентский сертификат + ключ
+   - Запомните или скопируйте **SSL Password** (один для всех)
+
+### Размещение сертификатов
+
 **Windows:**
-```powershell
-winget install EclipseAdoptium.Temurin.17.JDK
 ```
-
-**macOS:**
-```bash
-brew install openjdk@17
-```
-
-**Linux:**
-```bash
-sudo apt update
-sudo apt install openjdk-17-jdk
-```
-
-Проверка установки:
-```bash
-java -version  # Должна показать Java 17
-```
-
-### 2. Установка Maven
-**Windows:**
-```powershell
-winget install Apache.Maven
-```
-
-**macOS:**
-```bash
-brew install maven
-```
-
-**Linux:**
-```bash
-sudo apt install maven
-```
-
-Проверка установки:
-```bash
-mvn -version
-```
-
-### 3. Настройка Kafka SSL сертификатов
-
-#### Windows:
-```powershell
-# Создайте директорию
-New-Item -ItemType Directory -Force -Path C:\kafka_key
-
-# Скопируйте ваши сертификаты
-Copy-Item kafka.truststore.jks C:\kafka_key\
-Copy-Item kafka.keystore.p12 C:\kafka_key\
-```
-
-#### Linux/macOS:
-```bash
-# Создайте директорию
-mkdir -p ~/kafka_key
-
-# Скопируйте ваши сертификаты
-cp kafka.truststore.jks ~/kafka_key/
-cp kafka.keystore.p12 ~/kafka_key/
-```
-
-### 4. Настройка паролей
-
-Создайте файл `.env` в корне проекта:
-```bash
-cp .env.example .env
-# Отредактируйте .env своими паролями
-```
-
-**Или установите переменные окружения:**
-
-**Windows PowerShell:**
-```powershell
-$env:KAFKA_SSL_TRUSTSTORE_PASSWORD="ваш_пароль"
-$env:KAFKA_SSL_KEYSTORE_PASSWORD="ваш_пароль"
-$env:KAFKA_REST_API_PASSWORD="ваш_пароль"
+C:\AUTO\kafka_key\kafka.truststore.jks
+C:\AUTO\kafka_key\kafka.keystore.p12
 ```
 
 **Linux/macOS:**
-```bash
-export KAFKA_SSL_TRUSTSTORE_PASSWORD="ваш_пароль"
-export KAFKA_SSL_KEYSTORE_PASSWORD="ваш_пароль"
-export KAFKA_REST_API_PASSWORD="ваш_пароль"
+```
+~/kafka_key/kafka.truststore.jks
+~/kafka_key/kafka.keystore.p12
 ```
 
-## Запуск тестов
+**Произвольный путь** — укажите в конфигурации явно (см. Шаг 2).
 
-### Быстрые команды
+---
 
-**Запустить все тесты:**
+## Шаг 2 — Настройка подключения
+
+### Вариант А: Переменные окружения (рекомендуется)
+
 ```bash
-mvn clean test
+# Обязательные
+export KAFKA_BOOTSTRAP_SERVERS=kafka-xxxx.j.aivencloud.com:28330
+export KAFKA_SSL_TRUSTSTORE_PASSWORD=ваш_ssl_пароль
+export KAFKA_SSL_KEYSTORE_PASSWORD=ваш_ssl_пароль
+export KAFKA_SSL_KEY_PASSWORD=ваш_ssl_пароль
+
+# Для Aiven API (удаление топиков, листинг)
+export AIVEN_API_TOKEN=ваш_токен_aiven
+export AIVEN_PROJECT_NAME=название-проекта
+export AIVEN_SERVICE_NAME=название-сервиса
+
+# Опционально: кастомные пути к сертификатам
+export KAFKA_SSL_TRUSTSTORE_LOCATION=/path/to/kafka.truststore.jks
+export KAFKA_SSL_KEYSTORE_LOCATION=/path/to/kafka.keystore.p12
 ```
 
-**Запустить smoke тесты:**
-```bash
-mvn test -Dgroups=smoke
+Для постоянного использования добавьте в `~/.bashrc` или `~/.zshrc`.
+
+**Windows (PowerShell):**
+```powershell
+$env:KAFKA_BOOTSTRAP_SERVERS = "kafka-xxxx.j.aivencloud.com:28330"
+$env:KAFKA_SSL_TRUSTSTORE_PASSWORD = "ваш_пароль"
+$env:KAFKA_SSL_KEYSTORE_PASSWORD = "ваш_пароль"
+$env:KAFKA_SSL_KEY_PASSWORD = "ваш_пароль"
+$env:AIVEN_API_TOKEN = "ваш_токен"
 ```
 
-**Запустить с определенным количеством потоков:**
-```bash
-mvn test -Pparallel -Dthread.count=4
+### Вариант Б: Файл local.properties
+
+Создайте или отредактируйте `src/main/resources/config/local.properties`:
+
+```properties
+# Подключение к Kafka
+kafka.bootstrap.servers=kafka-xxxx.j.aivencloud.com:28330
+kafka.security.protocol=SSL
+
+# SSL-сертификаты (Windows-пути — двойные обратные слэши)
+kafka.ssl.truststore.location=C:\\AUTO\\kafka_key\\kafka.truststore.jks
+kafka.ssl.truststore.password=ваш_пароль
+kafka.ssl.truststore.type=JKS
+kafka.ssl.keystore.location=C:\\AUTO\\kafka_key\\kafka.keystore.p12
+kafka.ssl.keystore.password=ваш_пароль
+kafka.ssl.keystore.type=PKCS12
+kafka.ssl.key.password=ваш_пароль
+
+# Aiven API
+aiven.api.token=ваш_токен
+aiven.project.name=название-проекта
+aiven.service.name=название-сервиса
+
+# Опционально: REST API (если используется)
+kafka.rest.api.url=https://kafka-xxxx.j.aivencloud.com:28332
+kafka.rest.api.username=avnadmin
+kafka.rest.api.password=ваш_пароль
 ```
 
-### Запуск по категориям тестов
+**Внимание:** не коммитьте `local.properties` с реальными паролями. Файл добавлен в `.gitignore`.
 
-**Producer тесты:**
+### Вариант В: System properties (runtime)
+
 ```bash
-mvn test -Dgroups=producer
+mvn test \
+  -Dkafka.bootstrap.servers=kafka-xxxx.j.aivencloud.com:28330 \
+  -Dkafka.ssl.truststore.password=ваш_пароль \
+  -Dkafka.ssl.keystore.password=ваш_пароль \
+  -Dkafka.ssl.key.password=ваш_пароль \
+  -Daiven.api.token=ваш_токен
 ```
 
-**Consumer тесты:**
+---
+
+## Шаг 3 — Сборка проекта
+
 ```bash
-mvn test -Dgroups=consumer
+cd qa-kafka-framework
+
+# Только компиляция (без тестов)
+mvn compile
+
+# Компиляция + компиляция тестов (без запуска)
+mvn test-compile
+
+# Полная сборка без тестов
+mvn package -DskipTests
 ```
 
-**Идемпотентность:**
+---
+
+## Шаг 4 — Запуск тестов
+
+### Все тесты (последовательно)
+
 ```bash
-mvn test -Dgroups=idempotence
+mvn test
 ```
 
-**Упорядоченность:**
+### Smoke-тесты (быстрая проверка, ~7 тестов)
+
 ```bash
-mvn test -Dgroups=ordering
+mvn test -Dtest.groups=smoke
+# или через профиль
+mvn test -P smoke
 ```
 
-**Управление offset:**
+### По функциональной группе (Maven профили)
+
 ```bash
-mvn test -Dgroups=offset
+mvn test -P producer           # 12 тестов: отправка сообщений
+mvn test -P consumer           # 12 тестов: чтение сообщений
+mvn test -P transactions       #  9 тестов: транзакции, exactly-once
+mvn test -P idempotence        #  7 тестов: идемпотентность
+mvn test -P offset             #  5 тестов: управление offset
+mvn test -P partitioning       #  5 тестов: партиционирование
+mvn test -P performance        #  4 теста:  производительность
+mvn test -P ordering           #  3 теста:  порядок сообщений
+mvn test -P dlq                #  3 теста:  Dead Letter Queue
+mvn test -P error-handling     #  5 тестов: обработка ошибок
+mvn test -P consumer-group     #  1 тест:   rebalance группы
+mvn test -P critical           # все критические тесты (тег critical)
 ```
 
-**Партиционирование:**
-```bash
-mvn test -Dgroups=partitioning
-```
+### Комбинирование профилей
 
-**DLQ тесты:**
 ```bash
-mvn test -Dgroups=dlq
-```
+# Группа + среда
+mvn test -P producer,ci
 
-### Запуск нескольких групп тегов
-
-**Логика ИЛИ (запустить если ЛЮБОЙ тег совпадает):**
-```bash
-mvn test -Dgroups="producer | consumer"
-```
-
-**Логика И (запустить если ВСЕ теги совпадают):**
-```bash
-mvn test -Dgroups="producer & critical"
-```
-
-**Логика НЕ (исключить теги):**
-```bash
-mvn test -Dgroups="!slow"
-```
-
-**Сложные выражения:**
-```bash
-mvn test -Dgroups="(producer | consumer) & smoke"
+# Несколько групп через теги
+mvn test -Dtest.groups="producer | consumer"
+mvn test -Dtest.groups="smoke | critical"
 ```
 
 ### Параллельное выполнение
 
-**Параллельно с 4 потоками (по умолчанию):**
 ```bash
-./run-tests.sh --parallel
+# 4 потока (рекомендуется для Aiven free tier)
+mvn test -P parallel -Dthread.count=4
+
+# 2 потока (минимальный параллелизм)
+mvn test -P parallel -Dthread.count=2
+
+# Параллельно + только smoke
+mvn test -P parallel,smoke -Dthread.count=4
 ```
 
-**Параллельно с произвольным количеством потоков:**
-```bash
-./run-tests.sh --parallel 8
-```
+**Важно при параллельном запуске:**
+- Каждый тест создаёт уникальный топик (UUID-суффикс)
+- Consumer group ID уникален для каждого теста (UUID-суффикс)
+- `@AfterAll globalCleanup()` закрывает все ресурсы из всех потоков
 
-**Строгое параллельное (fork-based):**
-```bash
-mvn test -Pparallel-strict -Dthread.count=4
-```
-
-### Запуск для конкретного окружения
-
-**Локальное окружение:**
-```bash
-mvn test -Denv=local
-```
-
-**CI окружение:**
-```bash
-mvn test -Denv=ci
-```
-
-## Просмотр отчетов
-
-### Allure отчеты
-
-**Сгенерировать и открыть отчет:**
-```bash
-mvn allure:report
-mvn allure:serve
-```
-
-**Только сгенерировать:**
-```bash
-mvn allure:report
-```
-
-Затем откройте `target/allure-report/index.html` в браузере.
-
-## Устранение неполадок
-
-### Проблема: Не удалось подключиться по SSL
-
-**Решение:**
-```bash
-# Проверьте наличие сертификатов
-ls -la ~/kafka_key/
-
-# Проверьте переменные окружения
-echo $KAFKA_SSL_TRUSTSTORE_PASSWORD
-
-# Запустите с явным указанием путей
-mvn test \
-  -Dkafka.ssl.truststore.location=~/kafka_key/kafka.truststore.jks \
-  -Dkafka.ssl.truststore.password=$KAFKA_SSL_TRUSTSTORE_PASSWORD
-```
-
-### Проблема: Тесты зависают по таймауту
-
-**Увеличьте таймауты:**
-```bash
-mvn test \
-  -Dtest.timeout.seconds=60 \
-  -Dtest.poll.timeout.seconds=10
-```
-
-### Проблема: Топик уже существует
-
-**Включите очистку:**
-```bash
-mvn test -Dtest.cleanup.topics=true
-```
-
-## Docker запуск
-
-### Быстрый старт
+### Через bash-скрипт
 
 ```bash
-# Подготовка
-mkdir kafka_key
-cp /путь/к/сертификатам/* kafka_key/
+chmod +x run-tests.sh
 
-# Создайте .env
-cat > .env << EOF
-KAFKA_SSL_TRUSTSTORE_PASSWORD=ваш_пароль
-KAFKA_SSL_KEYSTORE_PASSWORD=ваш_пароль
-KAFKA_REST_API_PASSWORD=ваш_пароль
-EOF
+# Все тесты последовательно
+./run-tests.sh
 
-# Запуск
-./docker/docker-run.sh
+# Только smoke
+./run-tests.sh --groups smoke
 
-# Smoke тесты
-./docker/docker-run.sh --smoke
+# Параллельно с 4 потоками
+./run-tests.sh --parallel 4
 
-# Параллельно
-./docker/docker-run.sh --parallel
+# Конкретная группа + окружение
+./run-tests.sh --groups consumer --env ci
 
-# Просмотр отчета
-./docker/docker-run.sh --report
+# Помощь
+./run-tests.sh --help
 ```
-
-Подробнее см. [docker/README.md](../docker/README.md)
 
 ---
 
-**Версия:** 1.1.0  
-**Дата:** 2026-01-18
+## Шаг 5 — Allure-отчёт
+
+### Генерация и запуск в браузере
+
+```bash
+# Генерация статического отчёта
+mvn allure:report
+
+# Запуск встроенного HTTP-сервера (откроет браузер автоматически)
+mvn allure:serve
+```
+
+Отчёт доступен по адресу: `http://localhost:PORT/`
+
+### Путь к результатам
+
+```
+target/allure-results/    # raw JSON-результаты
+target/allure-report/     # сгенерированный HTML-отчёт
+target/surefire-reports/  # JUnit XML (для CI-систем)
+```
+
+### Онлайн-отчёт (GitHub Pages)
+
+После успешного CI: [https://sherlock0731.github.io/qa-kafka-framework/](https://sherlock0731.github.io/qa-kafka-framework/)
+
+---
+
+## Запуск в Docker
+
+### Подготовка
+
+```bash
+# Сертификаты должны быть доступны при сборке
+ls docker/
+# Dockerfile  docker-compose.yml  docker-run.sh  README.md
+```
+
+### Docker Compose (рекомендуется)
+
+```bash
+cd docker
+
+# Запуск с переменными окружения
+KAFKA_BOOTSTRAP_SERVERS=kafka-xxxx.j.aivencloud.com:28330 \
+KAFKA_SSL_TRUSTSTORE_PASSWORD=ваш_пароль \
+KAFKA_SSL_KEYSTORE_PASSWORD=ваш_пароль \
+KAFKA_SSL_KEY_PASSWORD=ваш_пароль \
+AIVEN_API_TOKEN=ваш_токен \
+docker-compose up --build
+
+# С .env файлом
+cp .env.example .env   # заполните .env своими значениями
+docker-compose up --build
+```
+
+### Docker напрямую
+
+```bash
+cd docker
+./docker-run.sh
+```
+
+Подробнее: [docker/README.md](../docker/README.md)
+
+---
+
+## CI/CD (GitHub Actions)
+
+### Настройка секретов
+
+В репозитории → **Settings** → **Secrets and variables** → **Actions** добавьте:
+
+| Secret | Описание |
+|--------|----------|
+| `KAFKA_BOOTSTRAP_SERVERS` | Адрес брокера (host:port) |
+| `KAFKA_SSL_TRUSTSTORE_PASSWORD` | Пароль truststore |
+| `KAFKA_SSL_KEYSTORE_PASSWORD` | Пароль keystore |
+| `KAFKA_SSL_KEY_PASSWORD` | Пароль ключа |
+| `AIVEN_API_TOKEN` | Bearer-токен Aiven API |
+| `AIVEN_PROJECT_NAME` | Название проекта Aiven |
+| `AIVEN_SERVICE_NAME` | Название Kafka-сервиса |
+
+Также загрузите сертификаты как зашифрованные secrets (base64) или настройте их монтирование. Подробнее: [docs/GITHUB_SECRETS_SETUP.md](GITHUB_SECRETS_SETUP.md)
+
+### Ручной запуск пайплайна
+
+В GitHub → **Actions** → **Run workflow** → выберите ветку и нажмите **Run workflow**.
+
+---
+
+## Устранение неполадок
+
+### SSL handshake failed
+
+```
+javax.net.ssl.SSLHandshakeException: PKIX path building failed
+```
+
+**Причины и решения:**
+- Неверный путь к `truststore.jks` → проверьте `kafka.ssl.truststore.location`
+- Устаревший сертификат → скачайте новые сертификаты из Aiven
+- Неверный тип truststore → должен быть `JKS`, keystore — `PKCS12`
+- Неверный пароль → все три пароля (truststore, keystore, key) должны совпадать
+
+### Consumer не получает сообщения (timeout)
+
+```
+WARN - Timeout reached. Polled 0 records, expected min: 10
+```
+
+**Причины и решения:**
+- Rebalance не завершился → добавьте `AsyncTestHelper.waitFor(5)` после `initConsumer()` и pre-warm poll
+- Consumer инициализирован после отправки → следуйте паттерну consumer-first initialization
+- Недостаточный таймаут → увеличьте в `AsyncTestHelper.pollWithRetry(consumer, 60, count)` (до 60–90с для Aiven)
+- Неверная переменная `kafka.consumer.auto.offset.reset` → должно быть `earliest` для новых групп
+
+### Топик не создаётся (timeout)
+
+```
+ERROR - Failed to create topic after 5 attempts
+```
+
+**Причины и решения:**
+- Rate limiting Aiven free tier → уменьшите параллелизм, добавьте `waitFor()` между тестами
+- AdminClient SSL проблема → проверьте SSL-настройки в `KafkaTopicManager.createAdminClient()`
+- Брокер недоступен → проверьте `KAFKA_BOOTSTRAP_SERVERS`
+
+### Утечка памяти / OOM при параллельном запуске
+
+- Убедитесь, что в `BaseTest` присутствует `@AfterAll globalCleanup()` с вызовом `manager.closeAll()`
+- Не используйте `@Disabled` тесты без закрытия ресурсов в `finally`
+- Проверьте счётчик: `consumerManager.getTrackedConsumerCount()`
+
+### Не работает Allure-отчёт
+
+```bash
+# Проверьте наличие результатов
+ls target/allure-results/
+
+# Убедитесь, что aspectjweaver в classpath
+mvn dependency:get -Dartifact=org.aspectj:aspectjweaver:1.9.21
+
+# Принудительная регенерация
+mvn allure:report -Dallure.results.directory=target/allure-results
+```
+
+---
+
+## Полезные команды
+
+```bash
+# Проверка зависимостей на уязвимости (OWASP)
+mvn verify -P security-check -DnvdApiKey=ВАШ_КЛЮЧ
+
+# Очистка артефактов сборки
+mvn clean
+
+# Запуск конкретного тест-класса
+mvn test -Dtest=ProducerTests
+
+# Запуск конкретного метода
+mvn test -Dtest=ProducerTests#testSendSingleMessage
+
+# Запуск с подробным выводом Surefire
+mvn test -P smoke -Dsurefire.useFile=false
+
+# Параллельно только smoke с подробным логом
+mvn test -P parallel,smoke -Dthread.count=2 -Dsurefire.useFile=false
+```
