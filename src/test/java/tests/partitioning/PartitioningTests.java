@@ -5,8 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import qa.autotest.app.dto.KafkaMessageDto;
-import qa.autotest.framework.utils.TestDataGenerator;
+import qa.autotest.framework.domain.model.*;
 import tests.BaseTest;
 
 import java.util.HashMap;
@@ -14,6 +13,12 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * Partitioning Tests
+ * Hexagonal Architecture v2.0
+ * No Thread.sleep — partition info comes from PublishResult directly,
+ * no consumer needed → no KafkaAwaitHelper required here.
+ */
 @Slf4j
 @Epic("Kafka Testing")
 @Feature("Partitioning")
@@ -26,26 +31,29 @@ public class PartitioningTests extends BaseTest {
     @Description("Verify messages are distributed across partitions")
     @Severity(SeverityLevel.CRITICAL)
     void testPartitionDistribution() {
-        String topic = createTestTopic(2); // 2 partitions (Aiven limit)
-        
-        // Send messages without key (should distribute across partitions)
+        String topicName = createTestTopic(2);
+
         int messageCount = 20;
         Map<Integer, Integer> partitionCounts = new HashMap<>();
-        
+
+        // No key → sticky partitioner distributes across partitions
+        // Partition info comes from PublishResult — no consumer needed
         for (int i = 0; i < messageCount; i++) {
-            KafkaMessageDto message = TestDataGenerator.generateMessage(topic);
-            message.setKey(null); // No key
-            
-            var metadata = producerManager.sendSync(message);
-            partitionCounts.merge(metadata.partition(), 1, Integer::sum);
+            Message message = Message.builder()
+                    .topic(Topic.builder().name(topicName).build())
+                    .key(null)
+                    .content("{\"index\": " + i + "}")
+                    .build();
+
+            PublishResult result = kafka.publish(message);
+            assertThat(result.isSuccess()).isTrue();
+            partitionCounts.merge(result.getPartition(), 1, Integer::sum);
         }
-        
-        log.info("Messages distributed across partitions: {}", partitionCounts);
-        
-        // Should use at least 1 partition (with sticky partitioner might use just 1)
+
+        log.info("TC-020: Partition distribution: {}", partitionCounts);
+
         assertThat(partitionCounts.size()).isGreaterThan(0);
-        
-        // Total messages should match
+
         int totalMessages = partitionCounts.values().stream().mapToInt(Integer::intValue).sum();
         assertThat(totalMessages).isEqualTo(messageCount);
     }
@@ -55,37 +63,37 @@ public class PartitioningTests extends BaseTest {
     @Description("Verify round-robin distribution when messages have no key")
     @Severity(SeverityLevel.NORMAL)
     void testRoundRobinPartitioning() {
-        // Use 2 partitions for Aiven Free Tier (changed from 3)
-        String topic = createTestTopic(2);
-        int messageCount = 100; // 2 partitions × 50
-        
+        String topicName = createTestTopic(2);
+        int messageCount = 100;
+
         Map<Integer, Integer> partitionCounts = new HashMap<>();
-        
+
         for (int i = 0; i < messageCount; i++) {
-            KafkaMessageDto message = TestDataGenerator.generateMessage(topic);
-            message.setKey(null); // No key for round-robin
-            
-            var metadata = producerManager.sendSync(message);
-            partitionCounts.merge(metadata.partition(), 1, Integer::sum);
-            
-            // Force flush every 10 messages to trigger sticky partitioner to switch
+            Message message = Message.builder()
+                    .topic(Topic.builder().name(topicName).build())
+                    .key(null)
+                    .content("{\"index\": " + i + "}")
+                    .build();
+
+            PublishResult result = kafka.publish(message);
+            assertThat(result.isSuccess()).isTrue();
+            partitionCounts.merge(result.getPartition(), 1, Integer::sum);
+
+            // Flush every 10 to trigger sticky partitioner switch
             if (i > 0 && i % 10 == 0) {
-                producerManager.flush();
+                kafka.flush();
             }
         }
-        
-        log.info("Partition distribution: {}", partitionCounts);
-        
-        // With Kafka 3.x sticky partitioner, messages without key may go to one partition
-        // until batch is full. We just verify that at least 1 partition is used
-        // and optionally both if flush triggered partition switch
+
+        log.info("TC-038: Partition distribution: {}", partitionCounts);
+
+        // Kafka 3.x sticky partitioner — at least 1 partition always used
         assertThat(partitionCounts.size()).isGreaterThanOrEqualTo(1);
-        
-        // If both partitions were used, check distribution is not too skewed
+
+        // If both partitions used — check no extreme skew (at least 10% each)
         if (partitionCounts.size() == 2) {
-            // Allow up to 80-20 split (not necessarily 50-50 due to sticky partitioner)
-            partitionCounts.values().forEach(count -> 
-                assertThat(count).isGreaterThanOrEqualTo(10) // At least 10% in each
+            partitionCounts.values().forEach(count ->
+                    assertThat(count).isGreaterThanOrEqualTo(10)
             );
         }
     }
@@ -96,27 +104,32 @@ public class PartitioningTests extends BaseTest {
     @Severity(SeverityLevel.CRITICAL)
     @Tag("smoke")
     void testHashPartitioning() {
-        // Use 2 partitions for Aiven Free Tier (changed from 3)
-        String topic = createTestTopic(2);
-        
+        String topicName = createTestTopic(2);
+
         Map<String, Integer> keyToPartition = new HashMap<>();
-        
-        // Send messages with different keys
+
         for (int i = 0; i < 10; i++) {
-            String key = "user-" + (i % 2); // Changed from % 3 to % 2
-            KafkaMessageDto message = TestDataGenerator.generateMessageWithKey(topic, key);
-            
-            var metadata = producerManager.sendSync(message);
-            
+            String key = "user-" + (i % 2);
+            Message message = Message.builder()
+                    .topic(Topic.builder().name(topicName).build())
+                    .key(key)
+                    .content("{\"user\": \"" + key + "\"}")
+                    .build();
+
+            PublishResult result = kafka.publish(message);
+            assertThat(result.isSuccess()).isTrue();
+
             if (keyToPartition.containsKey(key)) {
-                // Same key should go to same partition
-                assertThat(metadata.partition()).isEqualTo(keyToPartition.get(key));
+                // Same key must always go to same partition
+                assertThat(result.getPartition())
+                        .as("Key '%s' must always map to same partition", key)
+                        .isEqualTo(keyToPartition.get(key));
             } else {
-                keyToPartition.put(key, metadata.partition());
+                keyToPartition.put(key, result.getPartition());
             }
         }
-        
-        log.info("Key to partition mapping: {}", keyToPartition);
+
+        log.info("TC-039: Key → partition mapping: {}", keyToPartition);
     }
 
     @Test
@@ -125,32 +138,32 @@ public class PartitioningTests extends BaseTest {
     @Severity(SeverityLevel.CRITICAL)
     @Tag("partitioning")
     void testPartitionKeyConsistency() {
-        String topic = createTestTopic(2); // 2 partitions (Aiven limit)
-        
-        // Send multiple messages with same key
+        String topicName = createTestTopic(2);
         String consistentKey = "consistent-key-123";
         int messageCount = 20;
-        
+
         Integer firstPartition = null;
-        
+
         for (int i = 0; i < messageCount; i++) {
-            KafkaMessageDto message = KafkaMessageDto.builder()
-                    .topic(topic)
+            Message message = Message.builder()
+                    .topic(Topic.builder().name(topicName).build())
                     .key(consistentKey)
-                    .value("Message " + i)
+                    .content("Message " + i)
                     .build();
-            
-            var metadata = producerManager.sendSync(message);
-            
+
+            PublishResult result = kafka.publish(message);
+            assertThat(result.isSuccess()).isTrue();
+
             if (firstPartition == null) {
-                firstPartition = metadata.partition();
+                firstPartition = result.getPartition();
             } else {
-                // All messages with same key must go to same partition
-                assertThat(metadata.partition()).isEqualTo(firstPartition);
+                assertThat(result.getPartition())
+                        .as("Same key must always go to same partition")
+                        .isEqualTo(firstPartition);
             }
         }
-        
-        log.info("All {} messages with key '{}' went to partition {}", 
+
+        log.info("TC-022: All {} messages with key '{}' → partition {}",
                 messageCount, consistentKey, firstPartition);
     }
 
@@ -160,29 +173,36 @@ public class PartitioningTests extends BaseTest {
     @Severity(SeverityLevel.NORMAL)
     @Tag("partitioning")
     void testPartitionCountChange() {
-        // Create topic with initial partitions
-        String topic = createTestTopic(2);
-        
-        // Send messages
+        String topicName = createTestTopic(2);
         String key = "test-key";
-        KafkaMessageDto message1 = TestDataGenerator.generateMessageWithKey(topic, key);
-        var metadata1 = producerManager.sendSync(message1);
-        
-        int initialPartition = metadata1.partition();
-        log.info("Message sent to partition {} with {} partitions", initialPartition, 2);
-        
-        // Note: Increasing partitions requires admin operations
-        // This test just verifies current behavior with existing partitions
-        
-        // Send more messages with same key
-        for (int i = 0; i < 5; i++) {
-            KafkaMessageDto message = TestDataGenerator.generateMessageWithKey(topic, key);
-            var metadata = producerManager.sendSync(message);
-            
-            // With same partition count, same key should go to same partition
-            assertThat(metadata.partition()).isEqualTo(initialPartition);
+
+        Message first = Message.builder()
+                .topic(Topic.builder().name(topicName).build())
+                .key(key)
+                .content("{\"seq\": 0}")
+                .build();
+
+        PublishResult firstResult = kafka.publish(first);
+        assertThat(firstResult.isSuccess()).isTrue();
+        int initialPartition = firstResult.getPartition();
+
+        log.info("TC-022A: First message → partition {} (2 partitions)", initialPartition);
+
+        // Same key → same partition with same partition count
+        for (int i = 1; i <= 5; i++) {
+            Message message = Message.builder()
+                    .topic(Topic.builder().name(topicName).build())
+                    .key(key)
+                    .content("{\"seq\": " + i + "}")
+                    .build();
+
+            PublishResult result = kafka.publish(message);
+            assertThat(result.isSuccess()).isTrue();
+            assertThat(result.getPartition())
+                    .as("Same partition count → same key → same partition")
+                    .isEqualTo(initialPartition);
         }
-        
-        log.info("Partition consistency maintained with key '{}'", key);
+
+        log.info("TC-022A: Partition consistency maintained for key '{}'", key);
     }
 }

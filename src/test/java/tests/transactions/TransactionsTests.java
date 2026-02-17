@@ -5,19 +5,20 @@ import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import qa.autotest.app.dto.ConsumerRecordDto;
-import qa.autotest.app.dto.KafkaMessageDto;
-import qa.autotest.framework.utils.AsyncTestHelper;
-import qa.autotest.framework.utils.TestDataGenerator;
+import qa.autotest.framework.domain.model.*;
+import qa.autotest.framework.utils.KafkaAwaitHelper;
 import tests.BaseTest;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
-import static org.assertj.core.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Transaction Tests
- * Tests for Kafka transactions and exactly-once semantics
+ * Transaction Tests — transactional sending and exactly-once semantics
+ * Hexagonal Architecture v2.0
+ * No Thread.sleep — all waits via KafkaAwaitHelper (Awaitility)
  */
 @Slf4j
 @Epic("Kafka Testing")
@@ -32,31 +33,27 @@ public class TransactionsTests extends BaseTest {
     @Severity(SeverityLevel.CRITICAL)
     @Tag("transactions")
     void testTransactionalSend() {
-        String topic = createTestTopic(2); // 2 partitions (Aiven limit)
+        String topicName = createTestTopic(2);
 
-        // Initialize consumer BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(topic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
-        AsyncTestHelper.waitFor(1);
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topicName, 15);
 
-        int messageCount = 10;
-        List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, messageCount);
-
-        for (int i = 0; i < messages.size(); i++) {
-            messages.get(i).addHeader("transaction-id", "txn-001");
-            messages.get(i).addHeader("sequence", String.valueOf(i));
+        List<Message> messages = new ArrayList<>();
+        for (int i = 0; i < 10; i++) {
+            messages.add(Message.builder()
+                    .topic(Topic.builder().name(topicName).build())
+                    .key("txn-key-" + i)
+                    .content("{\"seq\": " + i + "}")
+                    .headers(Map.of("transaction-id", "txn-001", "sequence", String.valueOf(i)))
+                    .build());
         }
 
-        producerManager.sendBatch(messages);
-        producerManager.flush();
-        AsyncTestHelper.waitFor(2);
+        kafka.publishBatch(messages);
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, 10, 15);
 
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount);
+        List<Message> records = KafkaAwaitHelper.awaitNewMessages(kafka, 10, 30);
 
-        assertThat(records.size()).isIn(0, messageCount);
-
-        log.info("Transaction result: {} messages consumed", records.size());
+        assertThat(records.size()).isIn(0, 10);
+        log.info("TC-040: Transaction result: {} messages consumed", records.size());
     }
 
     @Test
@@ -65,29 +62,22 @@ public class TransactionsTests extends BaseTest {
     @Severity(SeverityLevel.CRITICAL)
     @Tag("transactions")
     void testTransactionCommit() {
-        String topic = createTestTopic();
+        String topicName = createTestTopic();
 
-        // Initialize consumer BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(topic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
-        AsyncTestHelper.waitFor(1);
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topicName, 15);
 
-        List<KafkaMessageDto> txn1Messages = TestDataGenerator.generateMessages(topic, 5);
-        for (KafkaMessageDto msg : txn1Messages) {
-            msg.addHeader("transaction", "txn-1-commit");
-        }
+        List<Message> messages = buildMessages(topicName, "commit-key-", 5,
+                Map.of("transaction", "txn-1-commit"));
 
-        producerManager.sendBatch(txn1Messages);
-        producerManager.flush();
-        AsyncTestHelper.waitFor(2);
+        kafka.publishBatch(messages);
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, 5, 15);
 
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, 5);
+        List<Message> records = KafkaAwaitHelper.awaitNewMessages(kafka, 5, 30);
 
         assertThat(records.size()).isGreaterThan(0);
         assertThat(records.size()).isLessThanOrEqualTo(5);
 
-        log.info("Committed transaction: {} messages received", records.size());
+        log.info("TC-041: Committed transaction: {} messages received", records.size());
     }
 
     @Test
@@ -96,30 +86,21 @@ public class TransactionsTests extends BaseTest {
     @Severity(SeverityLevel.CRITICAL)
     @Tag("transactions")
     void testTransactionRollback() {
-        String topic = createTestTopic();
+        String topicName = createTestTopic();
 
-        // Initialize consumer BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(topic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
-        AsyncTestHelper.waitFor(1);
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topicName, 15);
 
-        List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 5);
-        for (KafkaMessageDto msg : messages) {
-            msg.addHeader("transaction", "txn-rollback");
-            msg.addHeader("should-rollback", "true");
-        }
+        List<Message> messages = buildMessages(topicName, "rollback-key-", 5,
+                Map.of("transaction", "txn-rollback", "should-rollback", "true"));
 
-        producerManager.sendBatch(messages);
-        // Don't flush - simulate rollback
-        // In real transactional producer: producer.abortTransaction();
+        // Publish but do NOT flush — simulate rollback (buffered but not committed)
+        kafka.publishBatch(messages);
+        // No flush — no awaitPropagation
 
-        AsyncTestHelper.waitFor(2);
+        // Quick poll — should get 0 (not yet flushed/committed)
+        List<Message> records = KafkaAwaitHelper.awaitNewMessages(kafka, 1, 3);
 
-        List<ConsumerRecordDto> records = consumerManager.poll(2);
-
-        log.info("After rollback attempt: {} messages found", records.size());
-
+        log.info("TC-042: After rollback attempt: {} messages found", records.size());
         assertThat(records.size()).isGreaterThanOrEqualTo(0);
     }
 
@@ -129,36 +110,27 @@ public class TransactionsTests extends BaseTest {
     @Severity(SeverityLevel.NORMAL)
     @Tag("transactions")
     void testReadCommittedIsolation() {
-        String topic = createTestTopic();
+        String topicName = createTestTopic();
 
-        // Initialize consumer BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(topic);
-        AsyncTestHelper.waitFor(5);  // Wait for consumer group rebalance
-        consumerManager.poll(2);     // Pre-warm: trigger partition assignment
-        AsyncTestHelper.waitFor(2);  // Extra wait — this test had rebalance completing at T+19s in logs
+        // Consumer fully ready before producing
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topicName, 20);
 
-        // NOW send committed messages — consumer is fully ready
-        List<KafkaMessageDto> committedMessages = TestDataGenerator.generateMessages(topic, 10);
-        for (KafkaMessageDto msg : committedMessages) {
-            msg.addHeader("isolation", "committed");
-        }
+        List<Message> messages = buildMessages(topicName, "committed-key-", 10,
+                Map.of("isolation", "committed"));
 
-        producerManager.sendBatch(committedMessages);
-        producerManager.flush();
-        AsyncTestHelper.waitFor(2);
+        kafka.publishBatch(messages);
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, 10, 15);
 
-        // Poll with 30s timeout (was 10s — not enough for cloud Kafka)
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, 10);
+        List<Message> records = KafkaAwaitHelper.awaitNewMessages(kafka, 10, 30);
 
-        // Should only get committed messages
         assertThat(records.size()).isGreaterThan(0);
 
-        // Verify all messages have committed marker
-        for (ConsumerRecordDto record : records) {
-            assertThat(record.getHeaders().get("isolation")).isEqualTo("committed");
+        // All consumed messages must have the committed marker
+        for (Message record : records) {
+            assertThat(record.getHeaders()).containsEntry("isolation", "committed");
         }
 
-        log.info("Read committed: {} messages consumed", records.size());
+        log.info("TC-043: Read committed: {} messages consumed", records.size());
     }
 
     @Test
@@ -168,45 +140,36 @@ public class TransactionsTests extends BaseTest {
     @Tag("transactions")
     @Tag("exactly-once")
     void testExactlyOnceSemantics() {
-        String topic = createTestTopic();
-        
-        // Initialize consumer BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(topic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        
-        // Pre-warm poll to ensure consumer is ready
-        consumerManager.poll(2);
-        AsyncTestHelper.waitFor(1);
-        
-        // Send messages with exactly-once guarantee
+        String topicName = createTestTopic();
         int messageCount = 20;
-        List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, messageCount);
-        
-        // Add unique identifiers for tracking
-        for (int i = 0; i < messages.size(); i++) {
-            messages.get(i).addHeader("eo-id", "eo-msg-" + i);
-            messages.get(i).addHeader("attempt", "1");
+
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topicName, 15);
+
+        List<Message> messages = new ArrayList<>();
+        for (int i = 0; i < messageCount; i++) {
+            messages.add(Message.builder()
+                    .topic(Topic.builder().name(topicName).build())
+                    .key("eo-key-" + i)
+                    .content("{\"seq\": " + i + "}")
+                    .headers(Map.of("eo-id", "eo-msg-" + i, "attempt", "1"))
+                    .build());
         }
-        
-        producerManager.sendBatch(messages);
-        producerManager.flush();
-        AsyncTestHelper.waitFor(2);
-        
-        // Poll for messages with sufficient timeout
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount);
-        
-        // Count unique messages by eo-id
+
+        kafka.publishBatch(messages);
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, messageCount, 15);
+
+        List<Message> records = KafkaAwaitHelper.awaitNewMessages(kafka, messageCount, 30);
+
         long uniqueMessages = records.stream()
-                .map(r -> r.getHeaders().get("eo-id"))
+                .map(r -> r.getHeaders() != null ? r.getHeaders().get("eo-id") : null)
                 .filter(id -> id != null)
                 .distinct()
                 .count();
-        
-        // With exactly-once, each message appears exactly once
+
         assertThat(uniqueMessages).isEqualTo(messageCount);
         assertThat(records.size()).isGreaterThanOrEqualTo(messageCount);
-        
-        log.info("Exactly-once: {} unique messages out of {} total", uniqueMessages, records.size());
+
+        log.info("TC-044: Exactly-once: {} unique / {} total", uniqueMessages, records.size());
     }
 
     @Test
@@ -217,47 +180,34 @@ public class TransactionsTests extends BaseTest {
     void testMultiTopicTransaction() {
         String topic1 = createTestTopic();
         String topic2 = createTestTopic();
-
-        // Initialize consumers BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(topic1);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        consumerManager.poll(2);   // Pre-warm poll
-        AsyncTestHelper.waitFor(1);
-
-        List<KafkaMessageDto> messages1 = TestDataGenerator.generateMessages(topic1, 5);
-        List<KafkaMessageDto> messages2 = TestDataGenerator.generateMessages(topic2, 5);
-
         String txnId = "multi-topic-txn-001";
 
-        for (KafkaMessageDto msg : messages1) {
-            msg.addHeader("transaction-id", txnId);
-            msg.addHeader("topic", "topic1");
-        }
-        for (KafkaMessageDto msg : messages2) {
-            msg.addHeader("transaction-id", txnId);
-            msg.addHeader("topic", "topic2");
-        }
+        // Consumer on topic1 before producing
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topic1, 15);
 
-        producerManager.sendBatch(messages1);
-        producerManager.sendBatch(messages2);
-        producerManager.flush();
-        AsyncTestHelper.waitFor(2);
+        List<Message> messages1 = buildMessages(topic1, "t1-key-", 5,
+                Map.of("transaction-id", txnId, "topic", "topic1"));
+        List<Message> messages2 = buildMessages(topic2, "t2-key-", 5,
+                Map.of("transaction-id", txnId, "topic", "topic2"));
 
-        // Verify messages in topic1
-        List<ConsumerRecordDto> records1 = AsyncTestHelper.pollWithRetry(consumerManager, 30, 5);
+        kafka.publishBatch(messages1);
+        kafka.publishBatch(messages2);
+        KafkaAwaitHelper.awaitPropagation(kafka, topic1, 5, 15);
 
-        // Verify messages in topic2
-        consumerManager.close();
-        consumerManager.initConsumer(topic2);
-        AsyncTestHelper.waitFor(5);
-        consumerManager.poll(2);
-        AsyncTestHelper.waitFor(1);
-        List<ConsumerRecordDto> records2 = AsyncTestHelper.pollWithRetry(consumerManager, 30, 5);
+        List<Message> records1 = KafkaAwaitHelper.awaitNewMessages(kafka, 5, 30);
+
+        // Switch consumer to topic2
+        kafka.close();
+        kafka = createNewFacade();
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topic2, 15);
+        KafkaAwaitHelper.awaitPropagation(kafka, topic2, 5, 15);
+
+        List<Message> records2 = KafkaAwaitHelper.awaitNewMessages(kafka, 5, 30);
 
         assertThat(records1.size()).isGreaterThan(0);
         assertThat(records2.size()).isGreaterThan(0);
 
-        log.info("Multi-topic transaction: {} messages in topic1, {} in topic2",
+        log.info("TC-045: Multi-topic txn: {} in topic1, {} in topic2",
                 records1.size(), records2.size());
     }
 
@@ -267,28 +217,20 @@ public class TransactionsTests extends BaseTest {
     @Severity(SeverityLevel.NORMAL)
     @Tag("transactions")
     void testTransactionTimeout() {
-        String topic = createTestTopic();
+        String topicName = createTestTopic();
 
-        // Initialize consumer BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(topic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
-        AsyncTestHelper.waitFor(1);
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topicName, 15);
 
-        List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 10);
-        for (KafkaMessageDto msg : messages) {
-            msg.addHeader("transaction", "txn-timeout");
-        }
+        List<Message> messages = buildMessages(topicName, "timeout-key-", 10,
+                Map.of("transaction", "txn-timeout"));
 
-        producerManager.sendBatch(messages);
-        producerManager.flush();
-        AsyncTestHelper.waitFor(2);
+        kafka.publishBatch(messages);
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, 10, 15);
 
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, 10);
+        List<Message> records = KafkaAwaitHelper.awaitNewMessages(kafka, 10, 30);
 
         assertThat(records.size()).isGreaterThanOrEqualTo(0);
-
-        log.info("Transaction with delay: {} messages received", records.size());
+        log.info("TC-046: Transaction with delay: {} messages received", records.size());
     }
 
     @Test
@@ -299,51 +241,40 @@ public class TransactionsTests extends BaseTest {
     void testProducerConsumerTransactionCoordination() {
         String inputTopic = createTestTopic();
         String outputTopic = createTestTopic();
-
-        // Initialize consumer on input topic BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(inputTopic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
-        AsyncTestHelper.waitFor(1);
-
-        // Send messages to input topic
         int messageCount = 10;
-        List<KafkaMessageDto> inputMessages = TestDataGenerator.generateMessages(inputTopic, messageCount);
-        producerManager.sendBatch(inputMessages);
-        producerManager.flush();
-        AsyncTestHelper.waitFor(2);
 
-        List<ConsumerRecordDto> inputRecords = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount);
+        // Step 1: consume input topic
+        KafkaAwaitHelper.awaitConsumerReady(kafka, inputTopic, 15);
 
-        // Transform and send to output topic
-        List<KafkaMessageDto> outputMessages = new java.util.ArrayList<>();
-        for (ConsumerRecordDto record : inputRecords) {
-            KafkaMessageDto outputMsg = KafkaMessageDto.builder()
-                    .topic(outputTopic)
+        List<Message> inputMessages = buildMessages(inputTopic, "input-key-", messageCount, Map.of());
+        kafka.publishBatch(inputMessages);
+        KafkaAwaitHelper.awaitPropagation(kafka, inputTopic, messageCount, 15);
+
+        List<Message> inputRecords = KafkaAwaitHelper.awaitNewMessages(kafka, messageCount, 30);
+
+        // Step 2: transform and send to output topic
+        List<Message> outputMessages = new ArrayList<>();
+        for (Message record : inputRecords) {
+            outputMessages.add(Message.builder()
+                    .topic(Topic.builder().name(outputTopic).build())
                     .key(record.getKey())
-                    .value("processed-" + record.getValue())
-                    .build();
-            outputMsg.addHeader("original-offset", String.valueOf(record.getOffset()));
-            outputMessages.add(outputMsg);
+                    .content("processed-" + record.getContent())
+                    .headers(Map.of("original-key", record.getKey()))
+                    .build());
         }
 
-        // Init consumer on output topic BEFORE sending to it
-        consumerManager.close();
-        consumerManager.initConsumer(outputTopic);
-        AsyncTestHelper.waitFor(5);
-        consumerManager.poll(2);
-        AsyncTestHelper.waitFor(1);
+        // Switch consumer to output topic
+        kafka.close();
+        kafka = createNewFacade();
+        KafkaAwaitHelper.awaitConsumerReady(kafka, outputTopic, 15);
 
-        producerManager.sendBatch(outputMessages);
-        producerManager.flush();
-        AsyncTestHelper.waitFor(2);
+        kafka.publishBatch(outputMessages);
+        KafkaAwaitHelper.awaitPropagation(kafka, outputTopic, inputRecords.size(), 15);
 
-        List<ConsumerRecordDto> outputRecords = AsyncTestHelper.pollWithRetry(consumerManager, 30, inputRecords.size());
+        List<Message> outputRecords = KafkaAwaitHelper.awaitNewMessages(kafka, inputRecords.size(), 30);
 
         assertThat(outputRecords.size()).isEqualTo(inputRecords.size());
-
-        log.info("Transaction coordination: {} input → {} output messages",
-                inputRecords.size(), outputRecords.size());
+        log.info("TC-047: Coordination: {} input → {} output", inputRecords.size(), outputRecords.size());
     }
 
     @Test
@@ -353,60 +284,55 @@ public class TransactionsTests extends BaseTest {
     @Tag("transactions")
     @Tag("error-handling")
     void testTransactionRecoveryAfterFailure() {
-        String topic = createTestTopic();
-        
-        // Initialize consumer BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(topic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        
-        // Pre-warm poll to ensure consumer is ready
-        consumerManager.poll(2);
-        AsyncTestHelper.waitFor(1);
-        
-        // Transaction 1: Will "fail"
-        List<KafkaMessageDto> failedTxnMessages = TestDataGenerator.generateMessages(topic, 5);
-        for (KafkaMessageDto msg : failedTxnMessages) {
-            msg.addHeader("transaction", "txn-failed");
-        }
-        producerManager.sendBatch(failedTxnMessages);
-        // Simulate failure - don't flush/commit
+        String topicName = createTestTopic();
 
-        AsyncTestHelper.waitFor(2); // Increased from 1
-        
-        // Transaction 2: Should succeed after recovery
-        List<KafkaMessageDto> recoveredTxnMessages = TestDataGenerator.generateMessages(topic, 5);
-        for (KafkaMessageDto msg : recoveredTxnMessages) {
-            msg.addHeader("transaction", "txn-recovered");
-        }
-        
-        producerManager.sendBatch(recoveredTxnMessages);
-        producerManager.flush(); // Commit
-        AsyncTestHelper.waitFor(3); // Increased from 2
-        
-        // Poll for messages with longer timeout
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, 5); // Increased from 10
-        
-        // Should have messages from recovered transaction
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topicName, 15);
+
+        // Transaction 1: "fail" — publish but no flush
+        List<Message> failedMessages = buildMessages(topicName, "failed-key-", 5,
+                Map.of("transaction", "txn-failed"));
+        kafka.publishBatch(failedMessages);
+        // No flush — simulates aborted transaction
+
+        // Transaction 2: succeed — flush
+        List<Message> recoveredMessages = buildMessages(topicName, "recovered-key-", 5,
+                Map.of("transaction", "txn-recovered"));
+        kafka.publishBatch(recoveredMessages);
+        kafka.flush();
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, 5, 15);
+
+        List<Message> records = KafkaAwaitHelper.awaitNewMessages(kafka, 5, 30);
+
         assertThat(records.size())
                 .as("Should receive messages from committed transaction")
                 .isGreaterThan(0);
-        
-        // Count messages from each transaction
+
         long failedCount = records.stream()
-                .filter(r -> "txn-failed".equals(r.getHeaders().get("transaction")))
+                .filter(r -> r.getHeaders() != null && "txn-failed".equals(r.getHeaders().get("transaction")))
                 .count();
         long recoveredCount = records.stream()
-                .filter(r -> "txn-recovered".equals(r.getHeaders().get("transaction")))
+                .filter(r -> r.getHeaders() != null && "txn-recovered".equals(r.getHeaders().get("transaction")))
                 .count();
-        
-        log.info("Transaction recovery: {} failed, {} recovered messages", failedCount, recoveredCount);
-        
-        // Should have at least some messages (main point of test)
-        assertThat(records.size())
-                .as("Should have received at least some messages")
-                .isGreaterThanOrEqualTo(5);
-        
-        // Should have more recovered than failed (or all recovered)
+
+        assertThat(records.size()).isGreaterThanOrEqualTo(5);
         assertThat(recoveredCount).isGreaterThanOrEqualTo(failedCount);
+
+        log.info("TC-048: Recovery: {} failed, {} recovered", failedCount, recoveredCount);
+    }
+
+    // ── helpers ───────────────────────────────────────────────────────────────
+
+    private List<Message> buildMessages(String topicName, String keyPrefix,
+                                        int count, Map<String, String> headers) {
+        List<Message> list = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            Message.MessageBuilder builder = Message.builder()
+                    .topic(Topic.builder().name(topicName).build())
+                    .key(keyPrefix + i)
+                    .content("{\"index\": " + i + "}");
+            if (!headers.isEmpty()) builder.headers(headers);
+            list.add(builder.build());
+        }
+        return list;
     }
 }

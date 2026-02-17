@@ -8,17 +8,17 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 public class ConfigFactory {
-    
+
     private static volatile KafkaConfig config;
-    
+
     private ConfigFactory() {
         // Private constructor to prevent instantiation
     }
-    
+
     /**
      * Gets the singleton instance of KafkaConfig
      * Thread-safe double-checked locking pattern
-     * 
+     *
      * @return KafkaConfig instance
      */
     public static KafkaConfig getConfig() {
@@ -29,12 +29,12 @@ public class ConfigFactory {
                     if (env == null) {
                         env = "local";
                     }
-                    
+
                     System.setProperty("env", env);
                     log.info("Initializing configuration for environment: {}", env);
-                    
+
                     config = org.aeonbits.owner.ConfigFactory.create(KafkaConfig.class);
-                    
+
                     log.info("Configuration initialized successfully");
                     log.debug("Kafka SSL enabled");
                     log.debug("Security Protocol: {}", config.securityProtocol());
@@ -44,7 +44,7 @@ public class ConfigFactory {
         }
         return config;
     }
-    
+
     /**
      * Resets the configuration (useful for testing)
      */
