@@ -5,18 +5,21 @@ import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import qa.autotest.app.dto.ConsumerRecordDto;
-import qa.autotest.app.dto.KafkaMessageDto;
-import qa.autotest.framework.utils.AsyncTestHelper;
-import qa.autotest.framework.utils.TestDataGenerator;
+import qa.autotest.framework.domain.model.*;
+import qa.autotest.framework.utils.KafkaAwaitHelper;
 import tests.BaseTest;
 
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Consumer Tests - Message Consumption Operations
+ * Hexagonal Architecture v2.0
+ * No Thread.sleep — all waits via KafkaAwaitHelper (Awaitility)
  */
 @Slf4j
 @Epic("Kafka Testing")
@@ -31,26 +34,19 @@ public class ConsumerTests extends BaseTest {
     @Severity(SeverityLevel.CRITICAL)
     @Tag("smoke")
     void testReadFromBeginning() {
-        String topic = createTestTopic();
+        String topicName = createTestTopic();
         int messageCount = 50;
-        
-        // Send messages first
-        List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, messageCount);
-        producerManager.sendBatch(messages);
-        producerManager.flush();
-        
-        // Create consumer with unique group ID to ensure reading from beginning
-        // (earliest offset reset only applies when no committed offset exists)
-        consumerManager.close(); // Close existing consumer if any
-        consumerManager.initConsumer(topic); // Will use unique consumer group per test
-        
-        // Use AsyncTestHelper.pollWithRetry instead of await()
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 90, messageCount);
-        
-        log.info("TC-009: Read {} of {} expected messages", records.size(), messageCount);
-        
-        // In cloud, sometimes not all messages arrive immediately
-        assertThat(records.size()).isGreaterThanOrEqualTo(messageCount / 2); // At least 25 of 50
+
+        // Publish first
+        List<Message> messages = buildMessages(topicName, "begin-key-", messageCount);
+        kafka.publishBatch(messages);
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, messageCount, 15);
+
+        // New consumer → unique group → reads from beginning
+        List<Message> consumed = KafkaAwaitHelper.awaitMessages(kafka, topicName, messageCount / 2, 30);
+
+        log.info("TC-009: Read {} of {} expected messages", consumed.size(), messageCount);
+        assertThat(consumed.size()).isGreaterThanOrEqualTo(messageCount / 2);
     }
 
     @Test
@@ -58,36 +54,26 @@ public class ConsumerTests extends BaseTest {
     @Description("Verify that consumer only reads new messages")
     @Severity(SeverityLevel.CRITICAL)
     void testReadLatestOnly() {
-        String topic = createTestTopic();
-        
-        // STRATEGY CHANGE: Initialize consumer FIRST with latest offset reset
-        // This ensures consumer position is at END before any messages are sent
-        consumerManager.initConsumer(topic);
-        
-        // Wait for consumer to fully join group and position at end
-        consumerManager.poll(10); // Long poll to ensure fully joined
-        
-        // Send old messages AFTER consumer is already positioned
-        List<KafkaMessageDto> oldMessages = TestDataGenerator.generateMessages(topic, 10);
-        producerManager.sendBatch(oldMessages);
-        producerManager.flush();
-        
-        // Poll to consume the old messages (consumer should get them since it's already subscribed)
-        List<ConsumerRecordDto> oldRecords = consumerManager.poll(5);
-        
-        log.info("TC-010: After sending old messages, got {} records", oldRecords.size());
-        
-        // Now send NEW message
-        KafkaMessageDto newMessage = TestDataGenerator.generateMessage(topic);
-        producerManager.sendSync(newMessage);
+        String topicName = createTestTopic();
 
-        // Should only get the new message
-        List<ConsumerRecordDto> newRecords = AsyncTestHelper.pollWithRetry(consumerManager, 10, 1);
-        
-        log.info("TC-010: After sending new message, got {} more records", newRecords.size());
-        
-        // In cloud, timing is unpredictable. Accept that we got at least the new message
-        assertThat(oldRecords.size() + newRecords.size()).isGreaterThanOrEqualTo(1);
+        // Subscribe first → positions at end (latest)
+        // awaitConsumerReady does subscribe + poll to ensure partition assignment
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topicName, 15);
+
+        // Publish one new message after consumer is ready
+        Message newMessage = Message.builder()
+                .topic(Topic.builder().name(topicName).build())
+                .key("latest-key-new")
+                .content("{\"type\": \"new\"}")
+                .build();
+        kafka.publish(newMessage);
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, 1, 10);
+
+        // Await the new message from current position (no seekToBeginning)
+        List<Message> result = KafkaAwaitHelper.awaitNewMessages(kafka, 1, 15);
+
+        log.info("TC-010: Got {} records from latest", result.size());
+        assertThat(result.size()).isGreaterThanOrEqualTo(1);
     }
 
     @Test
@@ -95,26 +81,27 @@ public class ConsumerTests extends BaseTest {
     @Description("Verify that consumer correctly receives message headers")
     @Severity(SeverityLevel.NORMAL)
     void testReadMessagesWithHeaders() {
-        String topic = createTestTopic();
-        
-        // Initialize consumer BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(topic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
-        AsyncTestHelper.waitFor(1);
-        
-        // NOW send message with headers AFTER consumer is ready
-        KafkaMessageDto message = TestDataGenerator.generateMessage(topic);
-        message.getHeaders().put("custom-header", "custom-value");
-        
-        producerManager.sendSync(message);
-        AsyncTestHelper.waitFor(2); // Wait for message to be written to Kafka
-        
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, 1);
-        assertThat(records).isNotEmpty();
-        
-        ConsumerRecordDto record = records.get(0);
-        assertThat(record.getHeaders()).containsEntry("custom-header", "custom-value");
+        String topicName = createTestTopic();
+
+        // Consumer ready before producing
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topicName, 15);
+
+        Message message = Message.builder()
+                .topic(Topic.builder().name(topicName).build())
+                .key("header-consume-key")
+                .content("{\"test\": \"TC-011\"}")
+                .headers(Map.of("custom-header", "custom-value"))
+                .build();
+
+        kafka.publish(message);
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, 1, 10);
+
+        List<Message> consumed = KafkaAwaitHelper.awaitNewMessages(kafka, 1, 15);
+
+        assertThat(consumed).isNotEmpty();
+        assertThat(consumed.get(0).getHeaders()).containsEntry("custom-header", "custom-value");
+
+        log.info("TC-011: Headers verified: {}", consumed.get(0).getHeaders());
     }
 
     @Test
@@ -122,25 +109,19 @@ public class ConsumerTests extends BaseTest {
     @Description("Verify consumer group coordination with multiple consumers")
     @Severity(SeverityLevel.CRITICAL)
     void testConsumerGroupCoordination() {
-        String topic = createTestTopic(2); // 2 partitions (Aiven limit)
-
-        // Initialize consumer BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(topic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
-        AsyncTestHelper.waitFor(1);
-
-        // Send messages to different partitions
+        String topicName = createTestTopic(2);
         int messageCount = 30;
-        List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, messageCount);
-        producerManager.sendBatch(messages);
-        producerManager.flush();
-        AsyncTestHelper.waitFor(2);
 
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, messageCount);
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topicName, 15);
 
-        // Single consumer should get all messages
-        assertThat(records.size()).isGreaterThan(0);
+        List<Message> messages = buildMessages(topicName, "group-key-", messageCount);
+        kafka.publishBatch(messages);
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, messageCount, 15);
+
+        List<Message> consumed = KafkaAwaitHelper.awaitNewMessages(kafka, messageCount, 30);
+
+        assertThat(consumed.size()).isGreaterThan(0);
+        log.info("TC-012: Consumer group received {} messages", consumed.size());
     }
 
     @Test
@@ -148,34 +129,27 @@ public class ConsumerTests extends BaseTest {
     @Description("Verify consumer can pause and resume partition consumption")
     @Severity(SeverityLevel.NORMAL)
     void testConsumerPauseResume() {
-        String topic = createTestTopic();
+        String topicName = createTestTopic();
 
-        // Initialize consumer BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(topic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
-        AsyncTestHelper.waitFor(1);
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topicName, 15);
 
-        // Send first batch
-        List<KafkaMessageDto> batch1 = TestDataGenerator.generateMessages(topic, 5);
-        producerManager.sendBatch(batch1);
-        producerManager.flush();
-        AsyncTestHelper.waitFor(2);
+        // Batch 1
+        List<Message> batch1 = buildMessages(topicName, "pause-b1-", 5);
+        kafka.publishBatch(batch1);
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, 5, 10);
 
-        // Consume first batch
-        List<ConsumerRecordDto> records1 = AsyncTestHelper.pollWithRetry(consumerManager, 30, 5);
-        assertThat(records1.size()).isGreaterThanOrEqualTo(5);
+        List<Message> result1 = KafkaAwaitHelper.awaitNewMessages(kafka, 5, 15);
+        assertThat(result1.size()).isGreaterThanOrEqualTo(5);
 
-        // Send second batch while paused
-        List<KafkaMessageDto> batch2 = TestDataGenerator.generateMessages(topic, 5);
-        producerManager.sendBatch(batch2);
-        producerManager.flush();
-        AsyncTestHelper.waitFor(1);
+        // Batch 2 — simulate "resumed"
+        List<Message> batch2 = buildMessages(topicName, "pause-b2-", 5);
+        kafka.publishBatch(batch2);
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, 5, 10);
 
-        List<ConsumerRecordDto> records2 = AsyncTestHelper.pollWithRetry(consumerManager, 5, 5);
-        assertThat(records2.size()).isGreaterThanOrEqualTo(0);
+        List<Message> result2 = KafkaAwaitHelper.awaitNewMessages(kafka, 5, 15);
 
-        assertThat(records1.size() + records2.size()).isGreaterThanOrEqualTo(5);
+        assertThat(result1.size() + result2.size()).isGreaterThanOrEqualTo(5);
+        log.info("TC-013: Batch1={} Batch2={}", result1.size(), result2.size());
     }
 
     @Test
@@ -183,26 +157,19 @@ public class ConsumerTests extends BaseTest {
     @Description("Verify consumer respects max.poll.records configuration")
     @Severity(SeverityLevel.NORMAL)
     void testMaxPollRecords() {
-        String topic = createTestTopic();
+        String topicName = createTestTopic();
 
-        // Initialize consumer BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(topic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
-        AsyncTestHelper.waitFor(1);
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topicName, 15);
 
-        // Send many messages
-        int totalMessages = 100;
-        List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, totalMessages);
-        producerManager.sendBatch(messages);
-        producerManager.flush();
-        AsyncTestHelper.waitFor(2);
+        List<Message> messages = buildMessages(topicName, "maxpoll-", 100);
+        kafka.publishBatch(messages);
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, 100, 15);
 
-        // Poll once - should respect max.poll.records (default 500)
-        List<ConsumerRecordDto> firstPoll = consumerManager.poll(1);
+        // Single poll — must respect max.poll.records (default 500)
+        ConsumeResult result = kafka.poll(Duration.ofSeconds(5));
 
-        // Should get some records but not necessarily all
-        assertThat(firstPoll.size()).isLessThanOrEqualTo(500);
+        assertThat(result.getMessageCount()).isLessThanOrEqualTo(500);
+        log.info("TC-014: Single poll returned {} records", result.getMessageCount());
     }
 
     @Test
@@ -210,16 +177,15 @@ public class ConsumerTests extends BaseTest {
     @Description("Verify consumer poll timeout behavior")
     @Severity(SeverityLevel.NORMAL)
     void testConsumerPollTimeout() {
-        String topic = createTestTopic();
-        
-        // Initialize consumer but don't send messages
-        consumerManager.initConsumer(topic);
-        
-        // Poll with short timeout - should return empty
-        List<ConsumerRecordDto> records = consumerManager.poll(1);
-        
-        // Should return quickly with empty list (no messages available)
-        assertThat(records).isEmpty();
+        String topicName = createTestTopic();
+
+        kafka.subscribe(topicName);
+
+        // Poll on empty topic with short timeout → must return 0 quickly
+        ConsumeResult result = kafka.poll(Duration.ofSeconds(2));
+
+        assertThat(result.getMessageCount()).isEqualTo(0);
+        log.info("TC-015: Empty poll returned 0 records as expected");
     }
 
     @Test
@@ -227,22 +193,18 @@ public class ConsumerTests extends BaseTest {
     @Description("Verify consumer handles session timeout correctly")
     @Severity(SeverityLevel.CRITICAL)
     void testConsumerSessionTimeout() {
-        String topic = createTestTopic();
+        String topicName = createTestTopic();
 
-        // Initialize consumer BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(topic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
-        AsyncTestHelper.waitFor(1);
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topicName, 15);
 
-        // Send messages
-        List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 10);
-        producerManager.sendBatch(messages);
-        producerManager.flush();
+        List<Message> messages = buildMessages(topicName, "session-", 10);
+        kafka.publishBatch(messages);
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, 10, 15);
 
-        // Should still be able to poll
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, 10);
-        assertThat(records.size()).isGreaterThan(0);
+        List<Message> consumed = KafkaAwaitHelper.awaitNewMessages(kafka, 10, 20);
+
+        assertThat(consumed.size()).isGreaterThan(0);
+        log.info("TC-011A: {} messages consumed", consumed.size());
     }
 
     @Test
@@ -250,30 +212,23 @@ public class ConsumerTests extends BaseTest {
     @Description("Verify consumer sends heartbeats to stay in group")
     @Severity(SeverityLevel.NORMAL)
     void testConsumerHeartbeat() {
-        String topic = createTestTopic();
+        String topicName = createTestTopic();
 
-        // Initialize consumer BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(topic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
-        AsyncTestHelper.waitFor(1);
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topicName, 15);
 
-        // Send messages
-        List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 10);
-        producerManager.sendBatch(messages);
-        producerManager.flush();
-        AsyncTestHelper.waitFor(2); // Wait for messages to be available
+        List<Message> messages = buildMessages(topicName, "heartbeat-", 10);
+        kafka.publishBatch(messages);
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, 10, 15);
 
-        // Poll multiple times - heartbeats should be sent automatically
-        int totalMessages = 0;
+        // Multiple polls — heartbeats are sent automatically in background
+        int totalConsumed = 0;
         for (int i = 0; i < 5; i++) {
-            List<ConsumerRecordDto> batch = consumerManager.poll(2);
-            totalMessages += batch.size();
-            AsyncTestHelper.waitForMillis(500);
+            ConsumeResult batch = kafka.poll(Duration.ofSeconds(2));
+            totalConsumed += batch.getMessageCount();
         }
 
-        // Should have received messages (consumer is still in group and receiving heartbeats)
-        assertThat(totalMessages).isGreaterThan(0);
+        assertThat(totalConsumed).isGreaterThan(0);
+        log.info("TC-011B: {} total messages in 5 polls", totalConsumed);
     }
 
     @Test
@@ -281,25 +236,18 @@ public class ConsumerTests extends BaseTest {
     @Description("Verify consumer can manually assign specific partitions")
     @Severity(SeverityLevel.NORMAL)
     void testManualPartitionAssignment() {
-        String topic = createTestTopic(2); // 2 partitions (Aiven limit)
+        String topicName = createTestTopic(2);
 
-        // Initialize consumer BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(topic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
-        AsyncTestHelper.waitFor(1);
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topicName, 15);
 
-        // Send messages
-        List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 15);
-        producerManager.sendBatch(messages);
-        producerManager.flush();
-        AsyncTestHelper.waitFor(2);
+        List<Message> messages = buildMessages(topicName, "manpart-", 15);
+        kafka.publishBatch(messages);
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, 15, 15);
 
-        // Poll messages
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, 15);
+        List<Message> consumed = KafkaAwaitHelper.awaitNewMessages(kafka, 15, 20);
 
-        // Should get messages from assigned partitions
-        assertThat(records.size()).isGreaterThan(0);
+        assertThat(consumed.size()).isGreaterThan(0);
+        log.info("TC-011C: {} messages from assigned partitions", consumed.size());
     }
 
     @Test
@@ -307,31 +255,22 @@ public class ConsumerTests extends BaseTest {
     @Description("Verify consumer can seek to beginning and end of partitions")
     @Severity(SeverityLevel.NORMAL)
     void testSeekToBeginningEnd() {
-        String topic = createTestTopic();
-        
-        // Send messages
-        List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 20);
-        producerManager.sendBatch(messages);
-        producerManager.flush();
-        AsyncTestHelper.waitFor(3); // Increased wait
-        
-        // Initialize consumer and consume all
-        consumerManager.initConsumer(topic);
-        List<ConsumerRecordDto> allRecords = AsyncTestHelper.pollWithRetry(consumerManager, 60, 20);
-        
-        int firstRead = allRecords.size();
-        assertThat(firstRead).isGreaterThan(0);
-        
-        // Close and reinit with SAME consumer group to read from last committed offset
-        // OR we need to manually seek to beginning
-        consumerManager.close();
-        consumerManager.initConsumer(topic);
-        
-        // Collect any remaining or re-read messages
-        List<ConsumerRecordDto> recordsAgain = AsyncTestHelper.pollWithRetry(consumerManager, 60, 20);
-        
-        // Should have read some messages (either remaining or all if seeked to beginning)
-        assertThat(firstRead + recordsAgain.size()).isGreaterThanOrEqualTo(firstRead);
+        String topicName = createTestTopic();
+
+        List<Message> messages = buildMessages(topicName, "seek-", 20);
+        kafka.publishBatch(messages);
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, 20, 15);
+
+        // Read from beginning
+        List<Message> firstRead = KafkaAwaitHelper.awaitMessages(kafka, topicName, 20, 30);
+        assertThat(firstRead.size()).isGreaterThan(0);
+
+        // Seek to end → no new messages
+        kafka.seekToEnd();
+        ConsumeResult afterEnd = kafka.poll(Duration.ofSeconds(2));
+
+        assertThat(afterEnd.getMessageCount()).isEqualTo(0);
+        log.info("TC-011D: firstRead={}, afterSeekToEnd={}", firstRead.size(), afterEnd.getMessageCount());
     }
 
     @Test
@@ -339,25 +278,32 @@ public class ConsumerTests extends BaseTest {
     @Description("Verify consumer lag can be measured")
     @Severity(SeverityLevel.NORMAL)
     void testConsumerLagMetrics() {
-        String topic = createTestTopic();
+        String topicName = createTestTopic();
 
-        // Initialize consumer BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(topic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
-        AsyncTestHelper.waitFor(1);
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topicName, 15);
 
-        // Send messages
-        List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 50);
-        producerManager.sendBatch(messages);
-        producerManager.flush();
-        AsyncTestHelper.waitFor(2);
+        List<Message> messages = buildMessages(topicName, "lag-", 50);
+        kafka.publishBatch(messages);
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, 50, 15);
 
-        // Consumer has lag (messages waiting to be consumed)
-        List<ConsumerRecordDto> consumed = AsyncTestHelper.pollWithRetry(consumerManager, 30, 50);
+        List<Message> consumed = KafkaAwaitHelper.awaitNewMessages(kafka, 50, 30);
 
-        // After consuming, lag should be reduced
         assertThat(consumed.size()).isGreaterThan(0);
         assertThat(consumed.size()).isLessThanOrEqualTo(50);
+        log.info("TC-011E: Consumed {} of 50 messages", consumed.size());
+    }
+
+    // ── helper ────────────────────────────────────────────────────────────────
+
+    private List<Message> buildMessages(String topicName, String keyPrefix, int count) {
+        List<Message> list = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            list.add(Message.builder()
+                    .topic(Topic.builder().name(topicName).build())
+                    .key(keyPrefix + i)
+                    .content("{\"index\": " + i + "}")
+                    .build());
+        }
+        return list;
     }
 }

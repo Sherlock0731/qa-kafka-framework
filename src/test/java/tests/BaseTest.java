@@ -4,311 +4,358 @@ import io.qameta.allure.Step;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
+import qa.autotest.framework.application.service.KafkaTestFacade;
 import qa.autotest.framework.config.ConfigFactory;
-import qa.autotest.framework.utils.AsyncTestHelper;
 import qa.autotest.framework.config.KafkaConfig;
-import qa.autotest.framework.kafka.KafkaConsumerManager;
-import qa.autotest.framework.kafka.KafkaProducerManager;
-import qa.autotest.framework.kafka.KafkaTopicManager;
+import qa.autotest.framework.domain.model.*;
 import tests.listeners.AllureKafkaListener;
 import tests.listeners.KafkaTestExecutionListener;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.time.Duration;
+import java.util.*;
 
 /**
- * Base test class with common setup and teardown for Kafka tests
- * Supports parallel execution with thread-safe resources
- * 
- * MEMORY LEAK PREVENTION:
- * This class implements explicit global cleanup to prevent memory leaks
- * in ForkJoinPool and parallel execution scenarios. The globalCleanup()
- * method ensures all Kafka clients across all threads are properly closed.
+ * Base Test Class with Hexagonal Architecture
+ * <p>
+ * This class provides a clean API for Kafka testing using the Hexagonal Architecture pattern.
+ * <p>
+ * Architecture Benefits:
+ * - Domain logic is independent of Kafka
+ * - Easy to test (can mock ports)
+ * - Easy to switch messaging systems
+ * - Clear separation of concerns
+ * <p>
+ * Memory Leak Prevention:
+ * - Uses WeakReference tracking in adapters
+ * - Global cleanup in @AfterAll
+ * - Thread-safe for parallel execution
+ *
+ * @author QA Automation Team
+ * @version 2.0.0 - Hexagonal Architecture
  */
 @Slf4j
 @ExtendWith({AllureKafkaListener.class, KafkaTestExecutionListener.class})
 public abstract class BaseTest {
 
     protected static final KafkaConfig CONFIG = ConfigFactory.getConfig();
-    
-    // Static thread-safe collections for tracking all managers across all threads
-    private static final Set<KafkaProducerManager> ALL_PRODUCER_MANAGERS = 
-        Collections.synchronizedSet(new HashSet<>());
-    private static final Set<KafkaConsumerManager> ALL_CONSUMER_MANAGERS = 
-        Collections.synchronizedSet(new HashSet<>());
-    private static final Set<KafkaTopicManager> ALL_TOPIC_MANAGERS = 
-        Collections.synchronizedSet(new HashSet<>());
-    
-    // Instance-level managers for per-test resources
-    protected KafkaProducerManager producerManager;
-    protected KafkaConsumerManager consumerManager;
-    protected KafkaTopicManager topicManager;
-    
-    // Track created topics for cleanup
-    protected List<String> createdTopics = new ArrayList<>();
+
+    /**
+     * Static collection to track all facades across all test instances
+     * Required for global cleanup in @AfterAll
+     */
+    private static final Set<KafkaTestFacade> ALL_FACADES =
+            Collections.synchronizedSet(new HashSet<>());
+
+    /**
+     * Test instance facade - provides simplified API
+     * This is the main entry point for test operations
+     */
+    protected KafkaTestFacade kafka;
+
+    /**
+     * Track created topics for cleanup
+     */
+    protected final List<String> createdTopics = new ArrayList<>();
+
+    /**
+     * Test execution tracking
+     */
+    protected long testStartTime;
 
     @BeforeAll
-    static void setUpAll() {
-        log.info("=== Kafka Test Framework Initialized ===");
-        log.info("Kafka SSL enabled");
-        log.info("Security Protocol: {}", CONFIG.securityProtocol());
-        log.info("Memory leak prevention: ENABLED (explicit thread tracking)");
+    static void initFramework() {
+        log.info("=".repeat(80));
+        log.info("Kafka Test Framework - Hexagonal Architecture");
+        log.info("=".repeat(80));
+        log.info("Configuration:");
+        log.info("  - Kafka Bootstrap: {}", CONFIG.kafkaBootstrapServers());
+        log.info("  - Security Protocol: {}", CONFIG.securityProtocol());
+        log.info("  - Architecture: Hexagonal (Domain + Application + Infrastructure)");
+        log.info("  - Memory Leak Prevention: ENABLED");
+        log.info("=".repeat(80));
     }
 
     @BeforeEach
-    @Step("Setup test environment")
-    void setUp() {
-        log.info("=== Test Started: {} ===", this.getClass().getSimpleName());
+    void setUp(TestInfo testInfo) {
+        testStartTime = System.currentTimeMillis();
+
+        log.info("=".repeat(80));
+        log.info("Starting test: {}", testInfo.getDisplayName());
         log.info("Thread: {}", Thread.currentThread().getName());
-        
-        // Initialize managers for current thread
-        producerManager = new KafkaProducerManager(CONFIG);
-        consumerManager = new KafkaConsumerManager(CONFIG);
-        topicManager = new KafkaTopicManager(CONFIG);
-        
-        // Track managers for global cleanup to prevent memory leaks
-        ALL_PRODUCER_MANAGERS.add(producerManager);
-        ALL_CONSUMER_MANAGERS.add(consumerManager);
-        ALL_TOPIC_MANAGERS.add(topicManager);
-        
-        createdTopics = new ArrayList<>();
-        
-        log.debug("Managers initialized. Total tracked - Producers: {}, Consumers: {}, Topics: {}",
-                 ALL_PRODUCER_MANAGERS.size(), ALL_CONSUMER_MANAGERS.size(), ALL_TOPIC_MANAGERS.size());
+        log.info("=".repeat(80));
+
+        // Initialize Hexagonal Architecture facade
+        kafka = new KafkaTestFacade(CONFIG);
+
+        // Register for global cleanup
+        ALL_FACADES.add(kafka);
+
+        log.debug("Test facade initialized");
     }
 
     @AfterEach
-    @Step("Cleanup test environment")
-    void tearDown() {
-        log.info("=== Test Cleanup Started ===");
+    void tearDown(TestInfo testInfo) {
+        long duration = System.currentTimeMillis() - testStartTime;
 
-        // Delete topics first
-        safeRun("delete topics", () -> {
-            if (topicManager != null && !createdTopics.isEmpty()) {
-                log.info("Cleaning up {} test topics", createdTopics.size());
-                createdTopics.forEach(t -> deleteTopicWithRetry(t, 5));
-            }
-        });
-        
-        // Close current thread's resources (not all threads - that's done in globalCleanup)
-        safeClose(producerManager, "producer");
-        safeClose(consumerManager, "consumer");
-        safeClose(topicManager, "topic manager");
+        log.info("=".repeat(80));
+        log.info("Finishing test: {}", testInfo.getDisplayName());
+        log.info("Duration: {}ms", duration);
+        log.info("=".repeat(80));
 
-        log.info("=== Test Finished: {} ===", getClass().getSimpleName());
+        try {
+            // Cleanup created topics
+            cleanupTopics();
+
+            // Close current thread resources
+            kafka.close();
+
+            log.debug("Test cleanup completed successfully");
+
+        } catch (Exception e) {
+            log.error("Error during test cleanup", e);
+        }
     }
-    
+
     /**
-     * CRITICAL MEMORY LEAK FIX: Global cleanup to close ALL producers/consumers from ALL threads
-     * 
-     * This method is ESSENTIAL for preventing memory leaks in parallel test execution.
-     * It ensures that ALL Kafka clients are properly closed, even if they were created
-     * by threads that no longer exist (e.g., in ForkJoinPool worker threads).
-     * 
-     * Without this cleanup:
-     * - Producers and consumers from terminated threads remain open
-     * - TCP connections to Kafka remain active
-     * - Memory leaks occur during long test runs
-     * - Eventually leads to connection pool exhaustion and OOM errors
-     * 
-     * The closeAll() methods use WeakReference tracking to find and close
-     * all instances across all threads.
+     * CRITICAL: Global cleanup for ALL threads
+     * <p>
+     * This method prevents memory leaks by closing ALL Kafka clients
+     * from ALL threads, not just the current thread.
+     * <p>
+     * Architecture note:
+     * - Calls closeAll() on each facade
+     * - Each facade calls closeAll() on its adapters
+     * - Adapters use WeakReference tracking to find all instances
      */
     @AfterAll
     static void globalCleanup() {
-        log.info("=== Global Cleanup Started ===");
-        log.info("Total managers to cleanup - Producers: {}, Consumers: {}, Topics: {}",
-                ALL_PRODUCER_MANAGERS.size(), ALL_CONSUMER_MANAGERS.size(), ALL_TOPIC_MANAGERS.size());
-        
-        int totalProducersClosed = 0;
-        int totalConsumersClosed = 0;
-        
-        // Close all producers across all threads
-        for (KafkaProducerManager manager : ALL_PRODUCER_MANAGERS) {
-            try {
-                if (manager != null) {
-                    int trackedBefore = manager.getTrackedProducerCount();
-                    manager.closeAll();  // Closes ALL producers from ALL threads
-                    totalProducersClosed += trackedBefore;
-                    log.debug("Closed producer manager (had {} tracked producers)", trackedBefore);
+        log.info("=".repeat(80));
+        log.info("GLOBAL CLEANUP - Closing ALL resources from ALL threads");
+        log.info("=".repeat(80));
+
+        int facadeClosed = 0;
+        int facadeFailed = 0;
+
+        synchronized (ALL_FACADES) {
+            for (KafkaTestFacade facade : ALL_FACADES) {
+                try {
+                    facade.closeAll();
+                    facadeClosed++;
+                } catch (Exception e) {
+                    facadeFailed++;
+                    log.error("Failed to close facade", e);
                 }
-            } catch (Exception e) {
-                log.warn("Failed to close producer manager: {}", e.getMessage());
             }
+            ALL_FACADES.clear();
         }
-        ALL_PRODUCER_MANAGERS.clear();
-        
-        // Close all consumers across all threads
-        for (KafkaConsumerManager manager : ALL_CONSUMER_MANAGERS) {
-            try {
-                if (manager != null) {
-                    int trackedBefore = manager.getTrackedConsumerCount();
-                    manager.closeAll();  // Closes ALL consumers from ALL threads
-                    totalConsumersClosed += trackedBefore;
-                    log.debug("Closed consumer manager (had {} tracked consumers)", trackedBefore);
-                }
-            } catch (Exception e) {
-                log.warn("Failed to close consumer manager: {}", e.getMessage());
-            }
-        }
-        ALL_CONSUMER_MANAGERS.clear();
-        
-        // Close all topic managers
-        for (KafkaTopicManager manager : ALL_TOPIC_MANAGERS) {
-            try {
-                if (manager != null) {
-                    manager.close();
-                }
-            } catch (Exception e) {
-                log.warn("Failed to close topic manager: {}", e.getMessage());
-            }
-        }
-        ALL_TOPIC_MANAGERS.clear();
-        
-        log.info("=== Global Cleanup Completed ===");
-        log.info("Total resources closed - Producers: {}, Consumers: {}", 
-                totalProducersClosed, totalConsumersClosed);
+
+        log.info("=".repeat(80));
+        log.info("Global cleanup completed");
+        log.info("  - Facades closed: {}", facadeClosed);
+        log.info("  - Facades failed: {}", facadeFailed);
+        log.info("=".repeat(80));
     }
-    
+
+    // ==================== Helper Methods (Domain-Oriented) ====================
+
     /**
-     * Delete topic with retry logic for reliability
-     * 
-     * @param topic Topic name to delete
-     * @param maxRetries Maximum number of retry attempts
-     */
-    private void deleteTopicWithRetry(String topic, int maxRetries) {
-        for (int attempt = 1; attempt <= maxRetries; attempt++) {
-            try {
-                topicManager.deleteTopic(topic);
-                log.debug("✓ Deleted test topic: {} (attempt {})", topic, attempt);
-                return; // Success - exit method
-                
-            } catch (Exception e) {
-                if (attempt < maxRetries) {
-                    log.warn("Failed to delete topic {} (attempt {}), retrying: {}", 
-                        topic, attempt, e.getMessage());
-                    
-                    // Wait before retry with exponential backoff: 1s, 2s, 3s
-                    AsyncTestHelper.waitFor(attempt);
-                } else {
-                    // Final attempt failed
-                    log.error("✗ Failed to delete topic {} after {} attempts: {}", 
-                        topic, maxRetries, e.getMessage());
-                    
-                    // Log but don't fail the test - topic will be cleaned up eventually
-                }
-            }
-        }
-    }
-    
-    /**
-     * Helper method to create and track topic
-     */
-    @Step("Create test topic")
-    protected String createTestTopic() {
-        String topic = createTopicWithRetry(() -> topicManager.createUniqueTopic());
-        createdTopics.add(topic);
-        return topic;
-    }
-    
-    /**
-     * Helper method to create topic with specific partitions
+     * Creates a test topic with auto-generated name.
+     * Returns topic name for use in tests.
      */
     @Step("Create test topic with {partitions} partitions")
     protected String createTestTopic(int partitions) {
-        String topic = createTopicWithRetry(() -> topicManager.createTopicWithPartitions(partitions));
-        createdTopics.add(topic);
-        return topic;
+        return createTestTopic(generateTopicName("auto"), partitions);
     }
-    
-    /**
-     * Create topic with retry mechanism for better reliability
-     */
-    private String createTopicWithRetry(java.util.function.Supplier<String> topicCreator) {
-        int maxRetries = 5;  // Увеличено с 3 до 5
-        RuntimeException lastException = null;
-        
-        for (int attempt = 1; attempt <= maxRetries; attempt++) {
-            long backoff = 3000L * attempt; // Exponential backoff: 3s, 6s, 9s, 12s, 15s
-            qa.autotest.framework.utils.RetryContext ctx = 
-                new qa.autotest.framework.utils.RetryContext(attempt, backoff);
-            
-            try {
-                String topic = topicCreator.get();
-                ctx.markSuccess();
-                ctx.attachToAllure("Topic Creation");
-                
-                if (attempt > 1) {
-                    log.info("✓ Topic created successfully on attempt {}", attempt);
-                }
-                return topic;
-            } catch (RuntimeException e) {
-                lastException = e;
-                ctx.markFailure(e);
-                ctx.attachToAllure("Topic Creation");
-                
-                if (attempt < maxRetries) {
-                    log.warn("Failed to create topic (attempt {}), retrying in {} ms: {}", 
-                        attempt, backoff, e.getMessage());
-                    AsyncTestHelper.waitFor((int)(backoff / 1000)); // Convert to seconds
-                } else {
-                    log.error("✗ Failed to create topic after {} attempts: {}", maxRetries, e.getMessage());
-                }
-            }
-        }
-        
-        throw lastException;
+
+    @Step("Create test topic (auto name)")
+    protected String createTestTopic() {
+        return createTestTopic(generateTopicName("auto"), 2);
     }
-    
+
     /**
-     * Helper method to create and track any topic by name
-     * Use this for DLQ topics, retry topics, etc.
-     * 
-     * @param topicName Name of the topic to create
-     * @param partitions Number of partitions
-     * @param replicationFactor Replication factor
-     * @return Created topic name
+     * Creates a test topic with given name and default 2 partitions (Aiven limit).
+     * Returns topic name for use in tests.
      */
-    @Step("Create and track topic: {topicName}")
-    protected String createAndTrackTopic(String topicName, int partitions, short replicationFactor) {
-        topicManager.createTopic(topicName, partitions, replicationFactor);
+    @Step("Create test topic: {topicName}")
+    protected String createTestTopic(String topicName) {
+        return createTestTopic(topicName, 2);
+    }
+
+    /**
+     * Creates a test topic with given partitions.
+     * Returns topic name for use in tests.
+     */
+    @Step("Create test topic: {topicName} with {partitions} partitions")
+    protected String createTestTopic(String topicName, int partitions) {
+        Topic topic = Topic.builder()
+                .name(topicName)
+                .partitionCount(partitions)
+                .replicationFactor((short) 1)
+                .build();
+
+        kafka.createTopic(topic);
         createdTopics.add(topicName);
-        log.debug("Created and tracking topic: {}", topicName);
+        kafka.waitForTopic(topicName, 10);
+
         return topicName;
     }
-    
+
     /**
-     * Manual tracking of externally created topics
-     * Use when topic is created outside of helper methods
-     * 
-     * @param topicName Topic name to track for cleanup
+     * Creates a topic with DLQ
      */
-    protected void trackTopicForCleanup(String topicName) {
-        if (!createdTopics.contains(topicName)) {
+    @Step("Create topic with DLQ: {topicName}")
+    protected boolean createTopicWithDlq(String topicName) {
+        boolean created = kafka.createTopicWithDlq(topicName);
+
+        if (created) {
             createdTopics.add(topicName);
-            log.debug("Manually tracking topic for cleanup: {}", topicName);
+            createdTopics.add(topicName + "-dlq");
         }
+
+        return created;
     }
 
-    private void safeClose(AutoCloseable c, String name) {
-        if (c == null) return;
-
-        try {
-            c.close();
-            log.debug("{} closed", name);
-        } catch (Exception e) {
-            log.warn("Failed to close {}: {}", name, e.getMessage());
-        }
+    /**
+     * Creates a fresh KafkaTestFacade (useful for rebalance tests).
+     * The new facade is tracked for cleanup in @AfterAll.
+     */
+    protected KafkaTestFacade createNewFacade() {
+        KafkaTestFacade fresh = new KafkaTestFacade(CONFIG);
+        ALL_FACADES.add(fresh);
+        return fresh;
     }
 
-    private void safeRun(String name, Runnable action) {
-        try {
-            action.run();
-        } catch (Exception e) {
-            log.warn("Cleanup step '{}' failed: {}", name, e.getMessage());
+    /**
+     * Publishes a list of domain messages via the facade.
+     */
+    @Step("Publish batch of {messages.size} messages")
+    protected List<PublishResult> publishBatch(List<Message> messages) {
+        return kafka.publishBatch(messages);
+    }
+
+    /**
+     * Publishes a message (domain method)
+     */
+    @Step("Publish message to {topicName}")
+    protected PublishResult publishMessage(String topicName, String key, String value) {
+        return kafka.publish(topicName, key, value);
+    }
+
+    /**
+     * Publishes a domain message
+     */
+    @Step("Publish domain message")
+    protected PublishResult publishMessage(Message message) {
+        return kafka.publish(message);
+    }
+
+    /**
+     * Consumes messages (domain method)
+     */
+    @Step("Consume messages from {topicName}")
+    protected List<Message> consumeMessages(String topicName, int expectedCount, Duration timeout) {
+        kafka.subscribe(topicName);
+        kafka.seekToBeginning();
+
+        ConsumeResult result = kafka.pollMessages(expectedCount, timeout);
+
+        return result.isSuccess() ? result.getMessages() : List.of();
+    }
+
+    /**
+     * Consumes all available messages
+     */
+    @Step("Consume all messages from {topicName}")
+    protected List<Message> consumeAllMessages(String topicName, int maxMessages) {
+        kafka.subscribe(topicName);
+        kafka.seekToBeginning();
+
+        ConsumeResult result = kafka.consumeAll(maxMessages, Duration.ofSeconds(10));
+
+        return result.isSuccess() ? result.getMessages() : List.of();
+    }
+
+    /**
+     * Waits for messages to be available
+     */
+    @Step("Wait for messages in {topicName}")
+    protected boolean waitForMessages(String topicName, int expectedCount, Duration timeout) {
+        kafka.subscribe(topicName);
+        kafka.seekToBeginning();
+
+        ConsumeResult result = kafka.pollMessages(expectedCount, timeout);
+
+        return result.isSuccess() && result.getMessageCount() >= expectedCount;
+    }
+
+    /**
+     * Generates a unique topic name for tests
+     */
+    protected String generateTopicName(String prefix) {
+        return String.format("qa-test-%s-%s", prefix, UUID.randomUUID());
+    }
+
+    /**
+     * Cleanup created topics
+     */
+    private void cleanupTopics() {
+        if (createdTopics.isEmpty()) {
+            return;
         }
+
+        log.debug("Cleaning up {} created topics", createdTopics.size());
+
+        for (String topicName : createdTopics) {
+            try {
+                kafka.deleteTopic(topicName);
+            } catch (Exception e) {
+                log.warn("Failed to delete topic: {}", topicName);
+            }
+        }
+
+        createdTopics.clear();
+    }
+
+    // ==================== Domain Assertions ====================
+
+    /**
+     * Asserts that publish was successful
+     */
+    protected void assertPublishSuccess(PublishResult result) {
+        Assertions.assertTrue(result.isSuccess(),
+                "Publish failed: " + result.getErrorMessage());
+    }
+
+    /**
+     * Asserts that consume was successful
+     */
+    protected void assertConsumeSuccess(ConsumeResult result) {
+        Assertions.assertTrue(result.isSuccess(),
+                "Consume failed: " + result.getErrorMessage());
+    }
+
+    /**
+     * Asserts message count
+     */
+    protected void assertMessageCount(ConsumeResult result, int expectedCount) {
+        Assertions.assertEquals(expectedCount, result.getMessageCount(),
+                "Expected " + expectedCount + " messages, got " + result.getMessageCount());
+    }
+
+    /**
+     * Asserts message content
+     */
+    protected void assertMessageContent(Message message, String expectedContent) {
+        Assertions.assertEquals(expectedContent, message.getContent(),
+                "Message content mismatch");
+    }
+
+    // ==================== Metrics ====================
+
+    /**
+     * Logs current metrics
+     */
+    protected void logMetrics() {
+        log.info("Test Metrics: {}", kafka.getMetrics());
     }
 }

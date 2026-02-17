@@ -5,18 +5,20 @@ import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import qa.autotest.app.dto.ConsumerRecordDto;
-import qa.autotest.app.dto.KafkaMessageDto;
-import qa.autotest.framework.utils.AsyncTestHelper;
-import qa.autotest.framework.utils.TestDataGenerator;
+import qa.autotest.framework.domain.model.*;
+import qa.autotest.framework.utils.KafkaAwaitHelper;
 import tests.BaseTest;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * Dead Letter Queue Tests
+ * Hexagonal Architecture v2.0
+ * No Thread.sleep — all waits via KafkaAwaitHelper (Awaitility)
+ */
 @Slf4j
 @Epic("Kafka Testing")
 @Feature("Dead Letter Queue")
@@ -30,47 +32,46 @@ public class DlqTests extends BaseTest {
     @Severity(SeverityLevel.CRITICAL)
     @Tag("smoke")
     void testSendToDlqAfterRetries() {
-        String topic = createTestTopic();
-        String dlqTopic = topicManager.createDlqTopic(topic);
-        createdTopics.add(dlqTopic);
+        // Create main topic + DLQ via domain method
+        String topicName = createTestTopic();
+        String dlqTopicName = topicName + ".dlq";
+        createTestTopic(dlqTopicName);
 
-        // Initialize consumer on DLQ BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(dlqTopic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
-        AsyncTestHelper.waitFor(1);
+        // Consumer ready on DLQ before producing
+        KafkaAwaitHelper.awaitConsumerReady(kafka, dlqTopicName, 15);
 
-        // Send poison pill message
-        KafkaMessageDto poisonMessage = TestDataGenerator.generateMessage(topic);
-        poisonMessage.setValue("INVALID_JSON:{not valid}");
-        poisonMessage.setRetryCount(3);
+        // Publish "poison pill" to main topic (simulates failed processing)
+        Message poisonMessage = Message.builder()
+                .topic(Topic.builder().name(topicName).build())
+                .key("poison-key-1")
+                .content("INVALID_JSON:{not valid}")
+                .build();
+        kafka.publish(poisonMessage);
 
-        producerManager.sendSync(poisonMessage);
-
-        // Simulate failure and send to DLQ
-        Map<String, String> dlqHeaders = new HashMap<>();
-        dlqHeaders.put("error-message", "Deserialization failed");
-        dlqHeaders.put("retry-count", "3");
-        dlqHeaders.put("original-topic", topic);
-
-        KafkaMessageDto dlqMessage = KafkaMessageDto.builder()
-                .topic(dlqTopic)
+        // Simulate DLQ routing — send to DLQ with error metadata headers
+        Message dlqMessage = Message.builder()
+                .topic(Topic.builder().name(dlqTopicName).build())
                 .key(poisonMessage.getKey())
-                .value(poisonMessage.getValue())
-                .headers(dlqHeaders)
-                .originalTopic(topic)
-                .errorMessage("Deserialization failed")
+                .content(poisonMessage.getContent())
+                .headers(Map.of(
+                        "error-message", "Deserialization failed",
+                        "retry-count", "3",
+                        "original-topic", topicName
+                ))
                 .build();
 
-        producerManager.sendSync(dlqMessage);
-        producerManager.flush();
+        kafka.publish(dlqMessage);
+        KafkaAwaitHelper.awaitPropagation(kafka, dlqTopicName, 1, 10);
 
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 60, 1);
+        List<Message> records = KafkaAwaitHelper.awaitNewMessages(kafka, 1, 30);
+
         assertThat(records).hasSize(1);
-
-        ConsumerRecordDto dlqRecord = records.get(0);
-        assertThat(dlqRecord.getHeaders()).containsEntry("original-topic", topic);
+        Message dlqRecord = records.get(0);
+        assertThat(dlqRecord.getHeaders()).containsEntry("original-topic", topicName);
         assertThat(dlqRecord.getHeaders()).containsEntry("retry-count", "3");
+
+        log.info("TC-049: Poison pill correctly routed to DLQ with headers: {}",
+                dlqRecord.getHeaders());
     }
 
     @Test
@@ -79,47 +80,43 @@ public class DlqTests extends BaseTest {
     @Severity(SeverityLevel.CRITICAL)
     @Tag("dlq")
     void testDlqRoutingLogic() {
-        String topic = createTestTopic();
-        String dlqTopic = topic + "-dlq";
-        createAndTrackTopic(dlqTopic, 1, (short) 1);
+        String topicName = createTestTopic();
+        String dlqTopicName = topicName + ".dlq";
+        createTestTopic(dlqTopicName);
 
-        // Initialize consumer on DLQ BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(dlqTopic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
-        AsyncTestHelper.waitFor(1);
+        // Consumer ready on DLQ before producing
+        KafkaAwaitHelper.awaitConsumerReady(kafka, dlqTopicName, 15);
 
-        // Create failed message with metadata
-        KafkaMessageDto failedMessage = KafkaMessageDto.builder()
-                .topic(topic)
+        // Route failed message to DLQ with full metadata
+        Message failedMessage = Message.builder()
+                .topic(Topic.builder().name(dlqTopicName).build())
                 .key("failed-key")
-                .value("failed-value")
+                .content("failed-value")
+                .headers(Map.of(
+                        "original-topic", topicName,
+                        "failure-reason", "Processing error",
+                        "failure-timestamp", String.valueOf(System.currentTimeMillis()),
+                        "retry-count", "5",
+                        "original-partition", "0",
+                        "original-offset", "123"
+                ))
                 .build();
 
-        failedMessage.addHeader("original-topic", topic);
-        failedMessage.addHeader("failure-reason", "Processing error");
-        failedMessage.addHeader("failure-timestamp", String.valueOf(System.currentTimeMillis()));
-        failedMessage.addHeader("retry-count", "5");
-        failedMessage.addHeader("original-partition", "0");
-        failedMessage.addHeader("original-offset", "123");
+        kafka.publish(failedMessage);
+        KafkaAwaitHelper.awaitPropagation(kafka, dlqTopicName, 1, 10);
 
-        // Route to DLQ
-        failedMessage.setTopic(dlqTopic);
-        producerManager.sendSync(failedMessage);
-        producerManager.flush();
-        AsyncTestHelper.waitFor(3);
+        List<Message> records = KafkaAwaitHelper.awaitNewMessages(kafka, 1, 30);
 
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 60, 1);
         assertThat(records.size()).isGreaterThanOrEqualTo(1);
-
-        ConsumerRecordDto dlqRecord = records.get(0);
+        Message dlqRecord = records.get(0);
         assertThat(dlqRecord.getHeaders()).containsKey("original-topic");
         assertThat(dlqRecord.getHeaders()).containsKey("failure-reason");
         assertThat(dlqRecord.getHeaders()).containsKey("failure-timestamp");
         assertThat(dlqRecord.getHeaders()).containsKey("retry-count");
         assertThat(dlqRecord.getHeaders().get("retry-count")).isEqualTo("5");
 
-        log.info("DLQ message contains {} metadata headers", dlqRecord.getHeaders().size());
+        log.info("TC-031: DLQ message contains {} metadata headers",
+                dlqRecord.getHeaders().size());
     }
 
     @Test
@@ -128,67 +125,57 @@ public class DlqTests extends BaseTest {
     @Severity(SeverityLevel.NORMAL)
     @Tag("dlq")
     void testRetryFromDlq() {
-        String topic = createTestTopic();
-        String dlqTopic = topic + "-dlq";
-        createAndTrackTopic(dlqTopic, 1, (short) 1);
+        String topicName = createTestTopic();
+        String dlqTopicName = topicName + ".dlq";
+        createTestTopic(dlqTopicName);
 
-        // Initialize consumer on DLQ BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(dlqTopic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
-        AsyncTestHelper.waitFor(1);
+        // Step 1: Send message to DLQ
+        KafkaAwaitHelper.awaitConsumerReady(kafka, dlqTopicName, 15);
 
-        // Send message to DLQ
-        KafkaMessageDto dlqMessage = KafkaMessageDto.builder()
-                .topic(dlqTopic)
+        Message dlqMessage = Message.builder()
+                .topic(Topic.builder().name(dlqTopicName).build())
                 .key("retry-key")
-                .value("retry-value")
+                .content("retry-value")
+                .headers(Map.of(
+                        "original-topic", topicName,
+                        "retry-count", "2"
+                ))
                 .build();
 
-        dlqMessage.addHeader("original-topic", topic);
-        dlqMessage.addHeader("retry-count", "2");
+        kafka.publish(dlqMessage);
+        KafkaAwaitHelper.awaitPropagation(kafka, dlqTopicName, 1, 10);
 
-        producerManager.sendSync(dlqMessage);
-        producerManager.flush();
-        AsyncTestHelper.waitFor(2);
-
-        // Read from DLQ
-        List<ConsumerRecordDto> dlqRecords = AsyncTestHelper.pollWithRetry(consumerManager, 60, 1);
+        // Step 2: Read from DLQ
+        List<Message> dlqRecords = KafkaAwaitHelper.awaitNewMessages(kafka, 1, 30);
         assertThat(dlqRecords).hasSize(1);
 
-        ConsumerRecordDto record = dlqRecords.get(0);
+        Message record = dlqRecords.get(0);
+        int newRetryCount = Integer.parseInt(record.getHeaders().get("retry-count")) + 1;
 
-        // Retry: send back to original topic with incremented retry count
-        KafkaMessageDto retryMessage = KafkaMessageDto.builder()
-                .topic(topic)
+        // Step 3: Re-subscribe to original topic and resend with incremented retry
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topicName, 15);
+
+        Message retryMessage = Message.builder()
+                .topic(Topic.builder().name(topicName).build())
                 .key(record.getKey())
-                .value(record.getValue())
+                .content(record.getContent())
+                .headers(Map.of(
+                        "retry-count", String.valueOf(newRetryCount),
+                        "retried-from-dlq", "true"
+                ))
                 .build();
 
-        String originalRetryCount = record.getHeaders().get("retry-count");
-        int newRetryCount = Integer.parseInt(originalRetryCount) + 1;
-        retryMessage.addHeader("retry-count", String.valueOf(newRetryCount));
-        retryMessage.addHeader("retried-from-dlq", "true");
+        kafka.publish(retryMessage);
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, 1, 10);
 
-        // Re-init consumer on original topic BEFORE sending retry
-        consumerManager.close();
-        consumerManager.initConsumer(topic);
-        AsyncTestHelper.waitFor(5);
-        consumerManager.poll(2);
-        AsyncTestHelper.waitFor(1);
+        List<Message> retryRecords = KafkaAwaitHelper.awaitNewMessages(kafka, 1, 30);
 
-        producerManager.sendSync(retryMessage);
-        producerManager.flush();
-        AsyncTestHelper.waitFor(2);
-
-        List<ConsumerRecordDto> retryRecords = AsyncTestHelper.pollWithRetry(consumerManager, 60, 1);
         assertThat(retryRecords).hasSize(1);
+        assertThat(retryRecords.get(0).getHeaders().get("retry-count")).isEqualTo("3");
+        assertThat(retryRecords.get(0).getHeaders()).containsEntry("retried-from-dlq", "true");
 
-        ConsumerRecordDto retriedRecord = retryRecords.get(0);
-        assertThat(retriedRecord.getHeaders().get("retry-count")).isEqualTo("3");
-        assertThat(retriedRecord.getHeaders()).containsEntry("retried-from-dlq", "true");
-
-        log.info("Message successfully retried from DLQ with retry count: {}",
-                retriedRecord.getHeaders().get("retry-count"));
+        log.info("TC-032: Message retried from DLQ, retry-count={}",
+                retryRecords.get(0).getHeaders().get("retry-count"));
     }
+
 }

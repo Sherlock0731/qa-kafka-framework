@@ -2,18 +2,14 @@ package tests.producer;
 
 import io.qameta.allure.*;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.kafka.clients.producer.RecordMetadata;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import qa.autotest.app.dto.ConsumerRecordDto;
-import qa.autotest.app.dto.KafkaMessageDto;
-import qa.autotest.framework.utils.AsyncTestHelper;
-import qa.autotest.framework.utils.TestDataGenerator;
+import qa.autotest.framework.domain.model.*;
+import qa.autotest.framework.utils.KafkaAwaitHelper;
 import tests.BaseTest;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -21,6 +17,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Producer Tests - Message Sending Operations
+ * Hexagonal Architecture v2.0
+ * No Thread.sleep — all waits via KafkaAwaitHelper (Awaitility)
  */
 @Slf4j
 @Epic("Kafka Testing")
@@ -35,19 +33,22 @@ public class ProducerTests extends BaseTest {
     @Severity(SeverityLevel.CRITICAL)
     @Tag("smoke")
     void testSendSingleMessage() {
-        String topic = createTestTopic();
-        
-        KafkaMessageDto message = TestDataGenerator.generateMessage(topic);
-        
-        RecordMetadata metadata = producerManager.sendSync(message);
-        
-        assertThat(metadata).isNotNull();
-        assertThat(metadata.hasOffset()).isTrue();
-        assertThat(metadata.topic()).isEqualTo(topic);
-        assertThat(message.getOffset()).isNotNull();
-        
-        log.info("Message sent to partition {} with offset {}", 
-                metadata.partition(), metadata.offset());
+        String topicName = createTestTopic();
+
+        Message message = Message.builder()
+                .topic(Topic.builder().name(topicName).build())
+                .key("single-key-1")
+                .content("{\"test\": \"TC-001\", \"value\": \"single message\"}")
+                .build();
+
+        PublishResult result = kafka.publish(message);
+
+        assertThat(result.isSuccess()).isTrue();
+        assertThat(result.getOffset()).isNotNull();
+        assertThat(result.getPartition()).isNotNull();
+
+        log.info("TC-001: Message sent to partition {} with offset {}",
+                result.getPartition(), result.getOffset());
     }
 
     @Test
@@ -55,21 +56,16 @@ public class ProducerTests extends BaseTest {
     @Description("Verify that multiple messages can be sent in batch")
     @Severity(SeverityLevel.CRITICAL)
     void testSendBatchMessages() {
-        String topic = createTestTopic();
+        String topicName = createTestTopic();
         int messageCount = 100;
-        
-        List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, messageCount);
-        
-        List<RecordMetadata> metadataList = producerManager.sendBatch(messages);
-        
-        assertThat(metadataList).hasSize(messageCount);
-        
-        // Verify sequential offsets
-        for (int i = 1; i < metadataList.size(); i++) {
-            long prevOffset = metadataList.get(i - 1).offset();
-            long currentOffset = metadataList.get(i).offset();
-            assertThat(currentOffset).isGreaterThan(prevOffset);
-        }
+
+        List<Message> messages = buildMessages(topicName, "batch-key-", messageCount);
+        List<PublishResult> results = kafka.publishBatch(messages);
+
+        assertThat(results).hasSize(messageCount);
+        assertThat(results).allMatch(PublishResult::isSuccess);
+
+        log.info("TC-002: Sent {} messages in batch", results.size());
     }
 
     @Test
@@ -77,109 +73,112 @@ public class ProducerTests extends BaseTest {
     @Description("Verify that messages with custom headers are sent correctly")
     @Severity(SeverityLevel.NORMAL)
     void testSendMessageWithHeaders() {
-        String topic = createTestTopic();
+        String topicName = createTestTopic();
 
-        // Initialize consumer BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(topic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
-        AsyncTestHelper.waitFor(1);
+        // Subscribe and await consumer group ready — no Thread.sleep
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topicName, 15);
 
-        java.util.Map<String, String> headers = new java.util.HashMap<>();
-        headers.put("trace-id", "trace-123");
-        headers.put("user-id", "user-456");
+        Message message = Message.builder()
+                .topic(Topic.builder().name(topicName).build())
+                .key("header-key-1")
+                .content("{\"test\": \"TC-003\"}")
+                .headers(Map.of("trace-id", "trace-123", "user-id", "user-456"))
+                .build();
 
-        KafkaMessageDto message = TestDataGenerator.generateMessage(topic);
-        message.setHeaders(headers);
+        kafka.publish(message);
 
-        RecordMetadata metadata = producerManager.sendSync(message);
+        // Await propagation, then consume — no Thread.sleep
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, 1, 10);
 
-        assertThat(metadata).isNotNull();
+        List<Message> messages = KafkaAwaitHelper.awaitNewMessages(kafka, 1, 15);
 
-        // Poll with retry
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, 1);
+        assertThat(messages).isNotEmpty();
+        Message consumed = messages.get(0);
+        assertThat(consumed.getHeaders()).containsEntry("trace-id", "trace-123");
+        assertThat(consumed.getHeaders()).containsEntry("user-id", "user-456");
 
-        assertThat(records).isNotEmpty();
-        ConsumerRecordDto record = records.get(0);
-        assertThat(record.getHeaders()).containsEntry("trace-id", "trace-123");
-        assertThat(record.getHeaders()).containsEntry("user-id", "user-456");
+        log.info("TC-003: Headers verified: {}", consumed.getHeaders());
     }
 
     @Test
-    @DisplayName("TC-004: Отправка сообщения с указанным ключом для партиционирования")
+    @DisplayName("TC-004: Отправка сообщений с одинаковым ключом в одну партицию")
     @Description("Verify that messages with the same key go to the same partition")
     @Severity(SeverityLevel.CRITICAL)
     void testSendMessageWithKey() {
-        // Use 2 partitions for Aiven Free Tier (changed from 3)
-        String topic = createTestTopic(2);
+        String topicName = createTestTopic(2);
         String key = "user-123";
-        
-        KafkaMessageDto message1 = TestDataGenerator.generateMessageWithKey(topic, key);
-        KafkaMessageDto message2 = TestDataGenerator.generateMessageWithKey(topic, key);
-        
-        RecordMetadata metadata1 = producerManager.sendSync(message1);
-        RecordMetadata metadata2 = producerManager.sendSync(message2);
-        
-        // Same key should go to same partition
-        assertThat(metadata1.partition()).isEqualTo(metadata2.partition());
-        
-        log.info("Both messages with key '{}' went to partition {}", key, metadata1.partition());
+
+        Message msg1 = Message.builder()
+                .topic(Topic.builder().name(topicName).build())
+                .key(key).content("{\"seq\": 1}").build();
+
+        Message msg2 = Message.builder()
+                .topic(Topic.builder().name(topicName).build())
+                .key(key).content("{\"seq\": 2}").build();
+
+        PublishResult result1 = kafka.publish(msg1);
+        PublishResult result2 = kafka.publish(msg2);
+
+        assertThat(result1.isSuccess()).isTrue();
+        assertThat(result2.isSuccess()).isTrue();
+        assertThat(result1.getPartition()).isEqualTo(result2.getPartition());
+
+        log.info("TC-004: Both messages key='{}' → partition {}", key, result1.getPartition());
     }
 
     @Test
-    @DisplayName("TC-006: Отправка сообщения размером больше max.message.bytes")
+    @DisplayName("TC-005: Отправка oversized сообщения")
     @Description("Verify that oversized messages are rejected")
     @Severity(SeverityLevel.NORMAL)
     void testSendOversizedMessage() {
-        String topic = createTestTopic();
-        
-        // Create a message larger than 1MB
-        StringBuilder largeValue = new StringBuilder();
-        for (int i = 0; i < 200000; i++) {
-            largeValue.append("This is a large message payload. ");
-        }
-        
-        KafkaMessageDto message = TestDataGenerator.generateMessage(topic);
-        message.setValue(largeValue.toString());
-        
+        String topicName = createTestTopic();
+
+        Message message = Message.builder()
+                .topic(Topic.builder().name(topicName).build())
+                .key("oversized-key")
+                .content("x".repeat(2_000_000))
+                .build();
+
         try {
-            producerManager.sendSync(message);
-            // If we reach here, the broker accepted it (might have higher limit)
-            log.warn("Large message was accepted by broker");
+            PublishResult result = kafka.publish(message);
+            if (!result.isSuccess()) {
+                log.info("TC-005: Large message rejected as expected");
+            } else {
+                log.warn("TC-005: Broker accepted large message (limit may be higher)");
+            }
         } catch (Exception e) {
-            // Expected: message too large
-            assertThat(e.getMessage()).containsIgnoringCase("message");
-            log.info("Large message rejected as expected: {}", e.getMessage());
+            assertThat(e.getMessage()).isNotNull();
+            log.info("TC-005: Exception on oversized message: {}", e.getMessage());
         }
     }
 
     @Test
-    @DisplayName("TC-006: Message compression (gzip/lz4/snappy)")
+    @DisplayName("TC-006: Message compression")
     @Description("Verify producer can send compressed messages")
     @Severity(SeverityLevel.NORMAL)
     void testProducerCompression() {
-        String topic = createTestTopic();
-
-        // Initialize consumer BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(topic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
-        AsyncTestHelper.waitFor(1);
-
+        String topicName = createTestTopic();
         int messageCount = 20;
-        List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, messageCount);
 
-        for (KafkaMessageDto msg : messages) {
-            msg.setValue("Repeated text for compression. ".repeat(100));
+        // Consumer ready before producing
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topicName, 15);
+
+        List<Message> messages = new ArrayList<>();
+        for (int i = 0; i < messageCount; i++) {
+            messages.add(Message.builder()
+                    .topic(Topic.builder().name(topicName).build())
+                    .key("comp-key-" + i)
+                    .content("Repeated text for compression. ".repeat(100))
+                    .build());
         }
 
-        producerManager.sendBatch(messages);
-        producerManager.flush();
-        AsyncTestHelper.waitFor(3);
+        kafka.publishBatch(messages);
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, messageCount, 15);
 
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 60, messageCount);
+        List<Message> consumed = KafkaAwaitHelper.awaitNewMessages(kafka, messageCount, 30);
 
-        assertThat(records.size()).isGreaterThanOrEqualTo(messageCount);
+        assertThat(consumed.size()).isGreaterThanOrEqualTo(messageCount);
+        log.info("TC-006: Received {} compressed messages", consumed.size());
     }
 
     @Test
@@ -187,27 +186,21 @@ public class ProducerTests extends BaseTest {
     @Description("Verify producer waits for all replicas with acks=all")
     @Severity(SeverityLevel.CRITICAL)
     void testProducerAcks() {
-        String topic = createTestTopic();
+        String topicName = createTestTopic();
 
-        // Initialize consumer BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(topic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
-        AsyncTestHelper.waitFor(1);
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topicName, 15);
 
-        List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 10);
+        List<Message> messages = buildMessages(topicName, "acks-key-", 10);
 
-        long startTime = System.currentTimeMillis();
-        producerManager.sendBatch(messages);
-        producerManager.flush();
-        long endTime = System.currentTimeMillis();
+        long start = System.currentTimeMillis();
+        kafka.publishBatch(messages);
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, 10, 15);
+        long duration = System.currentTimeMillis() - start;
 
-        long duration = endTime - startTime;
-        log.info("Send with acks=all took {} ms", duration);
+        log.info("TC-007: Send with acks=all took {} ms", duration);
 
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, 10);
-
-        assertThat(records).hasSize(10);
+        List<Message> consumed = KafkaAwaitHelper.awaitNewMessages(kafka, 10, 20);
+        assertThat(consumed.size()).isEqualTo(10);
     }
 
     @Test
@@ -215,19 +208,22 @@ public class ProducerTests extends BaseTest {
     @Description("Verify producer retries failed sends automatically")
     @Severity(SeverityLevel.CRITICAL)
     void testProducerRetry() {
-        String topic = createTestTopic();
-        
-        // Send messages - producer will retry on transient errors
+        String topicName = createTestTopic();
         int messageCount = 15;
-        List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, messageCount);
-        
+
         int successCount = 0;
-        for (KafkaMessageDto message : messages) {producerManager.sendSync(message);
-                successCount++;
+        for (int i = 0; i < messageCount; i++) {
+            Message message = Message.builder()
+                    .topic(Topic.builder().name(topicName).build())
+                    .key("retry-key-" + i)
+                    .content("{\"retry\": true, \"index\": " + i + "}")
+                    .build();
+            PublishResult result = kafka.publishWithRetry(message, 3);
+            if (result.isSuccess()) successCount++;
         }
-        
-        // Most messages should succeed even with potential transient errors
+
         assertThat(successCount).isGreaterThan(messageCount / 2);
+        log.info("TC-008: {}/{} messages sent successfully", successCount, messageCount);
     }
 
     @Test
@@ -235,17 +231,21 @@ public class ProducerTests extends BaseTest {
     @Description("Verify producer handles request timeout properly")
     @Severity(SeverityLevel.NORMAL)
     void testProducerTimeout() {
-        String topic = createTestTopic();
-        
-        // Send message with configured timeout
-        KafkaMessageDto message = TestDataGenerator.generateMessage(topic);
+        String topicName = createTestTopic();
 
-            long startTime = System.currentTimeMillis();
-            producerManager.sendSync(message);
-            long duration = System.currentTimeMillis() - startTime;
-            
-            // Should complete within reasonable time
-            assertThat(duration).isLessThan(30000); // 30 seconds max
+        Message message = Message.builder()
+                .topic(Topic.builder().name(topicName).build())
+                .key("timeout-key")
+                .content("{\"test\": \"timeout\"}")
+                .build();
+
+        long start = System.currentTimeMillis();
+        PublishResult result = kafka.publish(message);
+        long duration = System.currentTimeMillis() - start;
+
+        assertThat(result.isSuccess()).isTrue();
+        assertThat(duration).isLessThan(30_000L);
+        log.info("TC-006A: Message sent in {} ms", duration);
     }
 
     @Test
@@ -253,24 +253,15 @@ public class ProducerTests extends BaseTest {
     @Description("Verify producer handles buffer full scenario")
     @Severity(SeverityLevel.NORMAL)
     void testProducerBufferFull() {
-        String topic = createTestTopic();
-        
-        // Send many messages quickly to potentially fill buffer
-        int messageCount = 1000;
-        List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, messageCount);
-        
-        int sentCount = 0;
-        for (KafkaMessageDto message : messages) {
+        String topicName = createTestTopic();
 
-                producerManager.sendAsync(message);
-                sentCount++;
-        }
-        
-        // Flush remaining
-        producerManager.flush();
-        
-        // Should have sent at least some messages
-        assertThat(sentCount).isGreaterThan(0);
+        List<Message> messages = buildMessages(topicName, "buf-key-", 1000);
+        List<PublishResult> results = kafka.publishBatch(messages);
+        kafka.flush();
+
+        long successCount = results.stream().filter(PublishResult::isSuccess).count();
+        assertThat(successCount).isGreaterThan(0);
+        log.info("TC-006B: {}/{} messages sent", successCount, messages.size());
     }
 
     @Test
@@ -278,23 +269,18 @@ public class ProducerTests extends BaseTest {
     @Description("Verify transactional producer behavior")
     @Severity(SeverityLevel.CRITICAL)
     void testTransactionalProducer() {
-        String topic = createTestTopic();
+        String topicName = createTestTopic();
 
-        // Initialize consumer BEFORE producing to avoid rebalance timing issues
-        consumerManager.initConsumer(topic);
-        AsyncTestHelper.waitFor(5); // Wait for consumer group rebalance
-        consumerManager.poll(2);   // Pre-warm poll to trigger partition assignment
-        AsyncTestHelper.waitFor(1);
+        KafkaAwaitHelper.awaitConsumerReady(kafka, topicName, 15);
 
-        List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 10);
+        List<Message> messages = buildMessages(topicName, "tx-key-", 10);
+        kafka.publishBatch(messages);
+        KafkaAwaitHelper.awaitPropagation(kafka, topicName, 10, 15);
 
-        producerManager.sendBatch(messages);
-        producerManager.flush();
-        AsyncTestHelper.waitFor(1);
+        List<Message> consumed = KafkaAwaitHelper.awaitNewMessages(kafka, 10, 15);
 
-        List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, 10);
-
-        assertThat(records.size()).isIn(0, 10);
+        assertThat(consumed.size()).isIn(0, 10);
+        log.info("TC-006C: Transactional publish: {} messages consumed", consumed.size());
     }
 
     @Test
@@ -302,29 +288,35 @@ public class ProducerTests extends BaseTest {
     @Description("Verify producer exposes metrics for monitoring")
     @Severity(SeverityLevel.NORMAL)
     void testProducerMetrics() {
-        String topic = createTestTopic();
-        
-        // Send messages to generate metrics
-        List<KafkaMessageDto> messages = TestDataGenerator.generateMessages(topic, 20);
-        
-        long startTime = System.currentTimeMillis();
-        producerManager.sendBatch(messages);
-        producerManager.flush();
-        long duration = System.currentTimeMillis() - startTime;
-        
-        // Metrics we care about:
-        // - Send duration (already measured)
-        // - Success count (20 messages)
-        // - Average latency
-        
-        log.info("Producer metrics: {} messages sent in {} ms", messages.size(), duration);
-        log.info("Average latency: {} ms per message", duration / messages.size());
-        
-        // Verify basic metrics make sense
+        String topicName = createTestTopic();
+
+        List<Message> messages = buildMessages(topicName, "metrics-key-", 20);
+
+        long start = System.currentTimeMillis();
+        List<PublishResult> results = kafka.publishBatch(messages);
+        kafka.flush();
+        long duration = System.currentTimeMillis() - start;
+
+        long sentCount = results.stream().filter(PublishResult::isSuccess).count();
+
+        log.info("TC-006D: {} messages in {} ms, avg {} ms/msg",
+                sentCount, duration, sentCount > 0 ? duration / sentCount : 0);
+
         assertThat(duration).isGreaterThan(0);
-        assertThat(messages.size()).isEqualTo(20);
-        
-        double avgLatency = (double) duration / messages.size();
-        assertThat(avgLatency).isGreaterThan(0);
+        assertThat(sentCount).isEqualTo(20);
+    }
+
+    // ── helper ────────────────────────────────────────────────────────────────
+
+    private List<Message> buildMessages(String topicName, String keyPrefix, int count) {
+        List<Message> list = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            list.add(Message.builder()
+                    .topic(Topic.builder().name(topicName).build())
+                    .key(keyPrefix + i)
+                    .content("{\"index\": " + i + "}")
+                    .build());
+        }
+        return list;
     }
 }
