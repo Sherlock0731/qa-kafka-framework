@@ -69,7 +69,7 @@ public interface KafkaConfig extends Config { ... }
 - **API** — `kafkaRestApiUrl/Username/Password`, `schemaRegistryUrl/Username/Password`
 - **Producer** — `producerAcks()` (default: `all`), `producerRetries()` (3), `producerEnableIdempotence()` (true), `producerMaxInFlightRequests()` (5), `producerBatchSize()` (16384), `producerLingerMs()` (10), `producerRequestTimeoutMs()` (30000)
 - **Consumer** — `consumerGroupIdBase()` (qa-test-group), `consumerAutoOffsetReset()` (earliest), `consumerEnableAutoCommit()` (false), `consumerSessionTimeoutMs()` (30000), `consumerMaxPollIntervalMs()` (300000), `consumerMaxPollRecords()` (500)
-- **Test** — `testTopicPrefix()` (qa-test), `testTopicPartitions()` (1), `testTopicReplicationFactor()` (1), `dlqTopicSuffix()` (-dlq), `testTimeoutSeconds()` (30), `cleanupTopics()` (true)
+- **Test** — `testTopicPrefix()` (qa-test), `testTopicPartitions()` (3), `testTopicReplicationFactor()` (1), `dlqTopicSuffix()` (-dlq), `testTimeoutSeconds()` (30), `cleanupTopics()` (true)
 - **Aiven** — `aivenApiUrl()` (https://api.aiven.io/v1), `aivenApiToken()`, `aivenProjectName()`, `aivenServiceName()`
 
 ### ConfigFactory

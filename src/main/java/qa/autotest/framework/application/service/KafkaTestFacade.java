@@ -10,6 +10,7 @@ import qa.autotest.framework.infrastructure.kafka.adapter.KafkaProducerAdapter;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -150,6 +151,79 @@ public class KafkaTestFacade implements AutoCloseable {
      */
     public ConsumeResult consumeAll(int maxMessages, Duration timeout) {
         return consumptionService.consumeAllMessages(maxMessages, timeout);
+    }
+
+    /**
+     * Polls for the first message that satisfies the given condition — safe variant.
+     * <p>
+     * Returns {@link Optional#empty()} if no matching message is found after all
+     * attempts, instead of {@code null}.  Use when the message may legitimately
+     * be absent and the test handles both cases.
+     *
+     * <pre>{@code
+     * Optional<Message> order = facade.consumeUntil(
+     *         m -> m.getKey().equals("order-99"),
+     *         "message with key='order-99'",
+     *         10,
+     *         Duration.ofSeconds(5));
+     *
+     * assertThat(order).isPresent();
+     * assertThat(order.get().getContent()).contains("CONFIRMED");
+     * }</pre>
+     *
+     * @param condition           Predicate to match against each incoming message
+     * @param conditionDescription Human-readable label shown in logs and failure output
+     * @param maxAttempts         Maximum number of poll rounds
+     * @param pollTimeout         Timeout per poll round
+     * @return {@link Optional} with the first matching message, or empty
+     */
+    public Optional<Message> consumeUntil(
+            java.util.function.Predicate<Message> condition,
+            String conditionDescription,
+            int maxAttempts,
+            Duration pollTimeout) {
+
+        return consumptionService.consumeUntil(condition, conditionDescription, maxAttempts, pollTimeout);
+    }
+
+    /**
+     * Polls for the first message that satisfies the given condition — strict variant.
+     * <p>
+     * Throws {@link qa.autotest.framework.domain.exception.MessageNotFoundException}
+     * with full diagnostic context (condition description, attempts, timeout, total
+     * time spent) when no matching message is found.  The exception message renders
+     * directly in the Allure failure detail, making it immediately clear <em>what</em>
+     * was expected but never arrived.
+     * <p>
+     * Prefer this variant whenever the message <em>must</em> be present for the
+     * test to be valid.
+     *
+     * <pre>{@code
+     * Message order = facade.consumeUntilOrThrow(
+     *         m -> m.getKey().equals("order-99"),
+     *         "message with key='order-99'",
+     *         10,
+     *         Duration.ofSeconds(5));
+     *
+     * // If not found: MessageNotFoundException — not NullPointerException
+     * assertThat(order.getContent()).contains("CONFIRMED");
+     * }</pre>
+     *
+     * @param condition           Predicate to match against each incoming message
+     * @param conditionDescription Human-readable label shown in logs and failure output
+     * @param maxAttempts         Maximum number of poll rounds
+     * @param pollTimeout         Timeout per poll round
+     * @return The first matching message
+     * @throws qa.autotest.framework.domain.exception.MessageNotFoundException
+     *         if no match is found after all attempts
+     */
+    public Message consumeUntilOrThrow(
+            java.util.function.Predicate<Message> condition,
+            String conditionDescription,
+            int maxAttempts,
+            Duration pollTimeout) {
+
+        return consumptionService.consumeUntilOrThrow(condition, conditionDescription, maxAttempts, pollTimeout);
     }
 
     /**

@@ -1,6 +1,5 @@
 package qa.autotest.framework.api;
 
-import io.restassured.RestAssured;
 import io.restassured.builder.RequestSpecBuilder;
 import io.restassured.filter.log.LogDetail;
 import io.restassured.filter.log.RequestLoggingFilter;
@@ -35,11 +34,16 @@ public class AivenApiController {
     }
 
     /**
-     * Creates REST Assured request specification with authentication
+     * Creates REST Assured request specification with authentication.
+     * <p>
+     * Base URI is set exclusively via {@link RequestSpecBuilder#setBaseUri} so that
+     * every instance carries its own self-contained spec. The static field
+     * {@code RestAssured.baseURI} is intentionally <em>not</em> assigned here:
+     * mutating that shared global state would introduce a race condition when
+     * multiple {@code AivenApiController} instances are constructed concurrently
+     * in parallel test threads.
      */
     private RequestSpecification createRequestSpecification() {
-        RestAssured.baseURI = config.aivenApiUrl();
-
         return new RequestSpecBuilder()
                 .setBaseUri(config.aivenApiUrl())
                 .setContentType(ContentType.JSON)

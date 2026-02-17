@@ -33,7 +33,12 @@ public interface KafkaConfig extends Config {
     // ==================== Kafka Connection Properties ====================
 
     /**
-     * Kafka bootstrap servers (broker addresses)
+     * Kafka bootstrap servers — comma-separated list of {@code host:port} pairs.
+     * <p>
+     * <strong>REQUIRED.</strong> No default is provided. The framework cannot
+     * establish any Kafka connection without this value.
+     * {@link ConfigFactory} will throw {@link ConfigurationException} at
+     * startup if this property is absent or blank.
      */
     @Key("kafka.bootstrap.servers")
     String kafkaBootstrapServers();
@@ -46,31 +51,47 @@ public interface KafkaConfig extends Config {
     String securityProtocol();
 
     /**
-     * SSL Truststore location
+     * SSL Truststore location — absolute path to the JKS truststore file.
+     * <p>
+     * <strong>REQUIRED when {@code kafka.security.protocol} is {@code SSL} or
+     * {@code SASL_SSL}.</strong> Ignored for {@code PLAINTEXT}.
+     * {@link ConfigFactory} validates this as part of the SSL property group.
      */
     @Key("kafka.ssl.truststore.location")
     String sslTruststoreLocation();
 
     /**
-     * SSL Truststore password
+     * SSL Truststore password.
+     * <p>
+     * <strong>REQUIRED when {@code kafka.security.protocol} is {@code SSL} or
+     * {@code SASL_SSL}.</strong> Ignored for {@code PLAINTEXT}.
      */
     @Key("kafka.ssl.truststore.password")
     String sslTruststorePassword();
 
     /**
-     * SSL Keystore location
+     * SSL Keystore location — absolute path to the PKCS12 keystore file.
+     * <p>
+     * <strong>REQUIRED when {@code kafka.security.protocol} is {@code SSL} or
+     * {@code SASL_SSL}.</strong> Ignored for {@code PLAINTEXT}.
      */
     @Key("kafka.ssl.keystore.location")
     String sslKeystoreLocation();
 
     /**
-     * SSL Keystore password
+     * SSL Keystore password.
+     * <p>
+     * <strong>REQUIRED when {@code kafka.security.protocol} is {@code SSL} or
+     * {@code SASL_SSL}.</strong> Ignored for {@code PLAINTEXT}.
      */
     @Key("kafka.ssl.keystore.password")
     String sslKeystorePassword();
 
     /**
-     * SSL Key password
+     * SSL private key password (may equal the keystore password for Aiven-issued certs).
+     * <p>
+     * <strong>REQUIRED when {@code kafka.security.protocol} is {@code SSL} or
+     * {@code SASL_SSL}.</strong> Ignored for {@code PLAINTEXT}.
      */
     @Key("kafka.ssl.key.password")
     String sslKeyPassword();
@@ -92,37 +113,54 @@ public interface KafkaConfig extends Config {
     // ==================== API Configuration ====================
 
     /**
-     * Kafka REST API base URL
+     * Kafka REST API base URL.
+     * <p>
+     * <strong>OPTIONAL.</strong> When set, {@code kafka.rest.api.password} also
+     * becomes required. Leave blank if the REST API is not used.
      */
     @Key("kafka.rest.api.url")
     String kafkaRestApiUrl();
 
     /**
-     * Kafka REST API username
+     * Kafka REST API username.
+     * <p>
+     * <strong>OPTIONAL.</strong> May be blank if the REST API uses token-based
+     * auth or is not configured.
      */
     @Key("kafka.rest.api.username")
     String kafkaRestApiUsername();
 
     /**
-     * Kafka REST API password
+     * Kafka REST API password.
+     * <p>
+     * <strong>REQUIRED when {@code kafka.rest.api.url} is set.</strong>
+     * {@link ConfigFactory} enforces this as a paired dependency.
      */
     @Key("kafka.rest.api.password")
     String kafkaRestApiPassword();
 
     /**
-     * Schema Registry URL
+     * Schema Registry URL.
+     * <p>
+     * <strong>OPTIONAL.</strong> When set, {@code kafka.schema.registry.password}
+     * also becomes required. Leave blank if Avro / Schema Registry is not used.
      */
     @Key("kafka.schema.registry.url")
     String schemaRegistryUrl();
 
     /**
-     * Schema Registry username
+     * Schema Registry username.
+     * <p>
+     * <strong>OPTIONAL.</strong> May be blank if not applicable.
      */
     @Key("kafka.schema.registry.username")
     String schemaRegistryUsername();
 
     /**
-     * Schema Registry password
+     * Schema Registry password.
+     * <p>
+     * <strong>REQUIRED when {@code kafka.schema.registry.url} is set.</strong>
+     * {@link ConfigFactory} enforces this as a paired dependency.
      */
     @Key("kafka.schema.registry.password")
     String schemaRegistryPassword();
@@ -311,26 +349,38 @@ public interface KafkaConfig extends Config {
     // ==================== Aiven API Configuration ====================
 
     /**
-     * Aiven API base URL
+     * Aiven API base URL.
+     * <p>
+     * Has a sensible default; override only when using a private Aiven deployment.
      */
     @Key("aiven.api.url")
     @DefaultValue("https://api.aiven.io/v1")
     String aivenApiUrl();
 
     /**
-     * Aiven API authentication token
+     * Aiven API personal access token.
+     * <p>
+     * <strong>REQUIRED as a group with {@code aiven.project.name} and
+     * {@code aiven.service.name}.</strong> If any one of the three Aiven
+     * properties is set, all three must be present.
+     * {@link ConfigFactory} enforces this all-or-nothing constraint.
+     * Leave all three blank to disable Aiven API integration.
      */
     @Key("aiven.api.token")
     String aivenApiToken();
 
     /**
-     * Aiven project name
+     * Aiven project name that owns the Kafka service.
+     * <p>
+     * <strong>REQUIRED as a group</strong> — see {@link #aivenApiToken()}.
      */
     @Key("aiven.project.name")
     String aivenProjectName();
 
     /**
-     * Aiven Kafka service name
+     * Aiven Kafka service name within the project.
+     * <p>
+     * <strong>REQUIRED as a group</strong> — see {@link #aivenApiToken()}.
      */
     @Key("aiven.service.name")
     String aivenServiceName();
