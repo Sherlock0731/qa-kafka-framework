@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class: tests.consumer.ConsumerTests
+Test Method: testConsumerLagMetrics
+Display Name: TC-011E: Consumer lag metrics
+Status: PASSED
+Execution Time: 2026-02-17 12:33:46
+Thread: main
+Tag: consumer
+Tag: critical
