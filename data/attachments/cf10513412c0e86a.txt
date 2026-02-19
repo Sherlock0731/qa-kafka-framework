@@ -1,0 +1,11 @@
+=== Test Execution Info ===
+
+Test Class: tests.idempotence.IdempotenceTests
+Test Method: testMessageOrderingInPartition
+Display Name: TC-026: Порядок сообщений в partition
+Status: PASSED
+Execution Time: 2026-02-19 05:29:18
+Thread: main
+Tag: ordering
+Tag: idempotence
+Tag: critical
