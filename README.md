@@ -32,35 +32,100 @@
 
 ## Архитектура
 
+Фреймворк построен по **Hexagonal Architecture** (Ports & Adapters) с чистым разделением слоёв:
+
 ```
 src/
-├── main/java/qa/autotest/
-│   ├── app/dto/                    # DTO: KafkaMessageDto, ConsumerRecordDto, TopicPartitionDto
-│   └── framework/
-│       ├── api/                    # AivenApiController (REST Assured)
-│       ├── config/                 # KafkaConfig (Owner lib), ConfigFactory
-│       ├── exceptions/             # 7 типов исключений с ErrorType
-│       ├── kafka/                  # KafkaProducerManager, KafkaConsumerManager,
-│       │                           # KafkaTopicManager, KafkaTopicCleanupManager,
-│       │                           # KafkaPropertiesBuilder
-│       ├── metrics/                # TestMetricsCollector
-│       ├── patterns/               # EventDrivenHelper
-│       └── utils/                  # AsyncTestHelper, RetryContext, TestDataGenerator
+├── main/
+│   ├── java/qa/autotest/framework/
+│   │   │
+│   │   ├── domain/                              # Domain Layer
+│   │   │   ├── exception/
+│   │   │   │   └── MessageNotFoundException.java
+│   │   │   ├── model/
+│   │   │   │   ├── ConsumeResult.java
+│   │   │   │   ├── ConsumerGroup.java
+│   │   │   │   ├── KafkaErrorCategory.java      # Единая таксономия ошибок
+│   │   │   │   ├── Message.java
+│   │   │   │   ├── Partition.java
+│   │   │   │   ├── PublishResult.java
+│   │   │   │   └── Topic.java
+│   │   │   └── port/
+│   │   │       ├── MessageConsumer.java
+│   │   │       ├── MessagePublisher.java
+│   │   │       └── TopicRepository.java
+│   │   │
+│   │   ├── application/service/                 # Application Layer
+│   │   │   ├── KafkaTestFacade.java             # Главный фасад
+│   │   │   ├── MessageConsumptionService.java
+│   │   │   ├── MessagePublishingService.java
+│   │   │   └── TopicManagementService.java
+│   │   │
+│   │   ├── infrastructure/                      # Infrastructure Layer
+│   │   │   ├── kafka/adapter/
+│   │   │   │   ├── KafkaAdminAdapter.java       # implements TopicRepository
+│   │   │   │   ├── KafkaConsumerAdapter.java    # implements MessageConsumer
+│   │   │   │   └── KafkaProducerAdapter.java    # implements MessagePublisher
+│   │   │   └── api/aiven/
+│   │   │       ├── AivenApiController.java      # REST-клиент к Aiven API
+│   │   │       └── dto/
+│   │   │           ├── AivenTopicDeleteResponseDto.java
+│   │   │           └── AivenTopicListResponseDto.java
+│   │   │
+│   │   ├── config/                              # Configuration
+│   │   │   ├── ConfigFactory.java               # Fail-fast validation
+│   │   │   ├── ConfigurationException.java
+│   │   │   └── KafkaConfig.java                 # Owner interface (40+ properties)
+│   │   │
+│   │   ├── kafka/                               # Kafka Utilities
+│   │   │   ├── KafkaPropertiesBuilder.java      # SSL/TLS config builder
+│   │   │   └── KafkaTopicCleanupManager.java
+│   │   │
+│   │   ├── utils/                               # General Utilities
+│   │   │   ├── KafkaAwaitHelper.java
+│   │   │   └── RetryContext.java
+│   │   │
+│   │   ├── metrics/
+│   │   │   └── TestMetricsCollector.java        # Thread-safe metrics
+│   │   │
+│   │   └── exceptions/                          # Legacy (to be migrated to domain/)
+│   │       ├── KafkaConsumerException.java
+│   │       ├── KafkaProducerException.java
+│   │       ├── KafkaRebalanceException.java
+│   │       ├── KafkaTestException.java          # Base exception
+│   │       ├── KafkaTimeoutException.java
+│   │       ├── KafkaTopicManagementException.java
+│   │       └── TestDataException.java
+│   │
+│   └── resources/
+│       ├── config/
+│       │   ├── ci.properties
+│       │   ├── default.properties
+│       │   └── local.properties
+│       └── logback.xml
+│
 └── test/java/tests/
-    ├── BaseTest.java               # Общий setup/teardown + глобальная очистка ресурсов
-    ├── listeners/                  # AllureKafkaListener, KafkaTestExecutionListener
-    ├── producer/                   # ProducerTests       — 12 тест-кейсов
-    ├── consumer/                   # ConsumerTests       — 12 тест-кейсов
-    ├── transactions/               # TransactionsTests   —  9 тест-кейсов
-    ├── idempotence/                # IdempotenceTests    —  7 тест-кейсов
-    ├── offset/                     # OffsetTests         —  5 тест-кейсов
-    ├── partitioning/               # PartitioningTests   —  5 тест-кейсов
-    ├── performance/                # PerformanceTests    —  4 тест-кейса
-    ├── ordering/                   # OrderingTests       —  3 тест-кейса
-    ├── dlq/                        # DlqTests            —  3 тест-кейса
-    ├── errorhandling/              # ErrorHandlingTests  —  5 тест-кейсов
-    └── consumergroup/              # ConsumerGroupTests  —  1 тест-кейс
+    ├── BaseTest.java                            # Жизненный цикл тестов
+    │
+    ├── listeners/
+    │   ├── AllureKafkaListener.java             # Категоризация сбоев
+    │   ├── GlobalCleanupListener.java
+    │   └── KafkaTestExecutionListener.java
+    │
+    ├── consumer/ConsumerTests.java              # 12 тест-кейсов
+    ├── consumergroup/ConsumerGroupTests.java    #  1 тест-кейс
+    ├── dlq/DlqTests.java                        #  3 тест-кейса
+    ├── errorhandling/ErrorHandlingTests.java    #  5 тест-кейсов
+    ├── idempotence/IdempotenceTests.java        #  7 тест-кейсов
+    ├── offset/OffsetTests.java                  #  5 тест-кейсов
+    ├── ordering/OrderingTests.java              #  3 тест-кейса
+    ├── partitioning/PartitioningTests.java      #  5 тест-кейсов
+    ├── performance/PerformanceTests.java        #  4 тест-кейса
+    ├── producer/ProducerTests.java              # 12 тест-кейсов
+    └── transactions/TransactionsTests.java      #  9 тест-кейсов
 ```
+
+Подробная документация: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ---
 

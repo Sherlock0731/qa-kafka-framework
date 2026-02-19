@@ -2,309 +2,249 @@
 
 ## Общая концепция
 
-Фреймворк построен по принципу разделения ответственности: **ядро** (`src/main`) содержит переиспользуемую инфраструктуру, **тесты** (`src/test`) — исключительно тест-логику. Всё взаимодействие с Kafka идёт через менеджеры-фасады, скрывающие детали протокола и обеспечивающие надёжность при работе с облачным брокером.
+Фреймворк построен по **Hexagonal Architecture** (Ports & Adapters) с чистым разделением слоёв:
+- **Domain** — бизнес-логика и модели, независимые от инфраструктуры
+- **Application** — use cases и оркестрация через сервисы
+- **Infrastructure** — адаптеры к внешним системам (Kafka, Aiven API)
+- **Tests** — тест-кейсы, использующие фасад фреймворка
 
 ---
 
-## Диаграмма компонентов
+## Архитектурная диаграмма (Hexagonal)
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         TEST LAYER                              │
-│  BaseTest  →  ProducerTests / ConsumerTests / TransactionsTests │
-│            →  IdempotenceTests / OffsetTests / PartitioningTests│
-│            →  OrderingTests / DlqTests / PerformanceTests       │
-│            →  ErrorHandlingTests / ConsumerGroupTests           │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │
-┌──────────────────────────▼──────────────────────────────────────┐
-│                      FRAMEWORK LAYER                            │
-│                                                                 │
-│  KafkaProducerManager   KafkaConsumerManager   KafkaTopicManager│
-│        │                       │                      │         │
-│        └───────────────────────┴──────────────────────┘         │
-│                           │                                     │
-│                  KafkaPropertiesBuilder                         │
-│                  (shared SSL + base config)                     │
-│                                                                 │
-│  AivenApiController    AsyncTestHelper    TestDataGenerator     │
-│  TestMetricsCollector  RetryContext       EventDrivenHelper     │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │
-┌──────────────────────────▼──────────────────────────────────────┐
-│                     INFRASTRUCTURE                              │
-│                                                                 │
-│  KafkaConfig (Owner)     ConfigFactory                          │
-│  KafkaTestException hierarchy (7 типов)                         │
-│  DTO: KafkaMessageDto, ConsumerRecordDto, TopicPartitionDto     │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │
-┌──────────────────────────▼──────────────────────────────────────┐
-│               AIVEN CLOUD KAFKA  (SSL/TLS)                      │
-│   kafka-clients 3.6.1: KafkaProducer, KafkaConsumer, Admin     │
-└─────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│                         TEST LAYER                             │
+│   BaseTest → ProducerTests / ConsumerTests / TransactionsTests │
+│           → IdempotenceTests / OffsetTests / PartitioningTests │
+│           → OrderingTests / DlqTests / PerformanceTests        │
+│           → ErrorHandlingTests / ConsumerGroupTests            │
+└─────────────────────────┬──────────────────────────────────────┘
+                          │
+┌─────────────────────────▼──────────────────────────────────────┐
+│                   APPLICATION LAYER                            │
+│                 (Orchestration Services)                       │
+│                                                                │
+│   KafkaTestFacade ← единая точка входа для тестов             │
+│        ↓                                                       │
+│   MessagePublishingService    MessageConsumptionService        │
+│   TopicManagementService                                       │
+│                                                                │
+│   Зависят только от Domain Ports (интерфейсов)                │
+└─────────────────────────┬──────────────────────────────────────┘
+                          │
+┌─────────────────────────▼──────────────────────────────────────┐
+│                      DOMAIN LAYER                              │
+│                  (Business Logic Core)                         │
+│                                                                │
+│  ┌────────── Models ─────────┐   ┌─── Ports (Interfaces) ───┐ │
+│  │ Message                   │   │ MessagePublisher         │ │
+│  │ Topic                     │   │ MessageConsumer          │ │
+│  │ Partition                 │   │ TopicRepository          │ │
+│  │ ConsumerGroup             │   └──────────────────────────┘ │
+│  │ PublishResult             │                                │
+│  │ ConsumeResult             │   ┌─── Exceptions ──────────┐ │
+│  │ KafkaErrorCategory        │   │ MessageNotFoundException │ │
+│  └───────────────────────────┘   └──────────────────────────┘ │
+│                                                                │
+│  • Domain не зависит от infrastructure                         │
+│  • Ports определяют контракты для адаптеров                   │
+└─────────────────────────┬──────────────────────────────────────┘
+                          │
+┌─────────────────────────▼──────────────────────────────────────┐
+│                  INFRASTRUCTURE LAYER                          │
+│                (Adapters to External Systems)                  │
+│                                                                │
+│  ┌─── Kafka Adapters ────────────────────────────────────┐    │
+│  │ KafkaProducerAdapter  implements MessagePublisher     │    │
+│  │ KafkaConsumerAdapter  implements MessageConsumer      │    │
+│  │ KafkaAdminAdapter     implements TopicRepository      │    │
+│  └────────────────────────────────────────────────────────┘   │
+│                                                                │
+│  ┌─── Aiven API Client ──────────────────────────────────┐    │
+│  │ AivenApiClient                                        │    │
+│  │   ├── dto/AivenTopicListResponseDto                   │    │
+│  │   └── dto/AivenTopicDeleteResponseDto                 │    │
+│  └────────────────────────────────────────────────────────┘   │
+│                                                                │
+│  ┌─── Configuration ──────────────────────────────────────┐   │
+│  │ KafkaConfig (Owner interface)                          │   │
+│  │ ConfigFactory (singleton creator + validation)         │   │
+│  │ ConfigurationException                                 │   │
+│  └────────────────────────────────────────────────────────┘   │
+│                                                                │
+│  ┌─── Legacy Exceptions (to be migrated) ────────────────┐   │
+│  │ KafkaTestException hierarchy:                          │   │
+│  │   KafkaProducerException, KafkaConsumerException,      │   │
+│  │   KafkaTimeoutException, KafkaRebalanceException,      │   │
+│  │   KafkaTopicManagementException, TestDataException     │   │
+│  └────────────────────────────────────────────────────────┘   │
+│                                                                │
+│  ┌─── Utilities ──────────────────────────────────────────┐   │
+│  │ KafkaPropertiesBuilder (SSL/TLS config)                │   │
+│  │ KafkaTopicCleanupManager                               │   │
+│  │ KafkaAwaitHelper (async wait utilities)                │   │
+│  │ RetryContext (Allure attachment helper)                │   │
+│  │ TestMetricsCollector                                   │   │
+│  └────────────────────────────────────────────────────────┘   │
+└─────────────────────────┬──────────────────────────────────────┘
+                          │
+┌─────────────────────────▼──────────────────────────────────────┐
+│              AIVEN CLOUD KAFKA (SSL/TLS)                       │
+│   kafka-clients 3.6.1: KafkaProducer, KafkaConsumer, Admin    │
+└────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Конфигурационный слой
+## Слои проекта (детальное описание)
 
-### KafkaConfig (Owner library)
+### 1. Domain Layer — `domain/`
+
+Ядро бизнес-логики, **не зависит** от Kafka, REST API или любых других технических деталей.
+
+#### Models — `domain/model/`
+
+Доменные сущности с валидацией и бизнес-методами:
+
+| Класс | Описание | Ключевые методы |
+|-------|----------|-----------------|
+| **Message** | Сообщение в системе | `validate()`, `hasHeaders()`, `isCorrelated()`, `isEvent()`, `hasExplicitPartition()` |
+| **Topic** | Топик Kafka | `validate()`, `isTestTopic()`, `createDlqTopic()`, `createRetryTopic(level)` |
+| **Partition** | Метаданные партиции | `validate()`, `getLag()`, `isLeader()` |
+| **ConsumerGroup** | Consumer group | `validate()`, `isStable()`, `isEmpty()` |
+| **PublishResult** | Результат публикации | `isSuccess()`, `isRetryable()`, `getPartitionInfo()`, `wasTargetedPublish()` |
+| **ConsumeResult** | Результат потребления | `hasMessages()`, `isEmpty()`, `isTimeout()`, `isRetryable()`, `consumedFrom(topic)` |
+| **KafkaErrorCategory** | Единая таксономия ошибок | `isRetryable()`, `getDisplayName()`, `fromPublishException()`, `fromConsumeException()` |
+
+**KafkaErrorCategory** — ключевое нововведение, объединяющее 13 категорий ошибок:
+- **Общие**: `NETWORK_ERROR`, `TIMEOUT_ERROR`, `AUTHENTICATION_ERROR`, `AUTHORIZATION_ERROR`, `UNKNOWN_ERROR`
+- **Produce**: `SERIALIZATION_ERROR`, `TOPIC_NOT_FOUND`, `BROKER_NOT_AVAILABLE`, `BUFFER_EXHAUSTED`
+- **Consume**: `DESERIALIZATION_ERROR`, `GROUP_COORDINATION_ERROR`, `OFFSET_OUT_OF_RANGE`
+
+Каждая категория несёт флаг `retryable` и человекочитаемое имя `displayName` для Allure-отчётов.
+
+#### Ports — `domain/port/`
+
+Интерфейсы, определяющие контракты для infrastructure adapters:
+
+| Port | Реализуется | Методы |
+|------|-------------|--------|
+| **MessagePublisher** | `KafkaProducerAdapter` | `publish()`, `publishAsync()`, `publishBatch()`, `publishBatchAsync()`, `flush()`, `close()` |
+| **MessageConsumer** | `KafkaConsumerAdapter` | `subscribe()`, `poll()`, `pollMessages()`, `consumeAll()`, `seek()`, `seekToBeginning()`, `seekToEnd()`, `commitSync()`, `commitAsync()`, `getConsumerGroup()`, `close()` |
+| **TopicRepository** | `KafkaAdminAdapter` | `createTopic()`, `createTopics()`, `deleteTopic()`, `deleteTopics()`, `exists()`, `getAllTopics()`, `getTopicsByPattern()`, `getPartitions()`, `waitForTopicCreation()`, `close()` |
+
+#### Exceptions — `domain/exception/`
+
+| Исключение | Назначение |
+|-----------|-----------|
+| **MessageNotFoundException** | Выбрасывается `consumeUntilOrThrow()` когда сообщение не найдено за отведённое время. Содержит: `conditionDescription`, `attemptsExhausted`, `pollTimeout`, `totalMessagesInspected`, `getTotalTimeSpent()` |
+
+---
+
+### 2. Application Layer — `application/service/`
+
+Оркестрирует use cases через Domain Ports. **Не знает** про Kafka напрямую.
+
+| Сервис | Зависит от | Назначение |
+|--------|-----------|-----------|
+| **KafkaTestFacade** | `MessagePublisher`, `MessageConsumer`, `TopicRepository` | Единая точка входа для тестов. Делегирует вызовы сервисам ниже. |
+| **MessagePublishingService** | `MessagePublisher` | Публикация одного/пакета сообщений с валидацией и метриками |
+| **MessageConsumptionService** | `MessageConsumer` | Polling с условиями: `consumeUntil(Predicate)`, `consumeAll()`, `consumeExactly(n)`. Методы возвращают `Optional<Message>` или выбрасывают `MessageNotFoundException`. |
+| **TopicManagementService** | `TopicRepository` | Создание/удаление топиков, включая DLQ и retry-топики. `createTopicWithDlq()`, `createTopicWithRetries(level)` |
+
+**Ключевая особенность**: все сервисы тестируемы с mock-портами без реального Kafka.
+
+---
+
+### 3. Infrastructure Layer — `infrastructure/`
+
+Реализации портов и адаптеры к внешним системам.
+
+#### Kafka Adapters — `infrastructure/kafka/adapter/`
+
+| Адаптер | Implements | Особенности |
+|---------|-----------|-------------|
+| **KafkaProducerAdapter** | `MessagePublisher` | ThreadLocal<KafkaProducer> + Set<WeakReference> для трекинга всех producer'ов. `closeAll()` закрывает все инстансы из всех потоков. Ошибки маппятся через `KafkaErrorCategory.fromPublishException()`. |
+| **KafkaConsumerAdapter** | `MessageConsumer` | ThreadLocal<KafkaConsumer> + Set<WeakReference>. `closeAll()` для глобальной очистки. Ошибки через `KafkaErrorCategory.fromConsumeException()`. |
+| **KafkaAdminAdapter** | `TopicRepository` | Использует `AdminClient` для управления топиками. Реализует все методы из `TopicRepository`. |
+
+**ThreadLocal + WeakReference паттерн** предотвращает утечки ресурсов при параллельном выполнении тестов в ForkJoinPool.
+
+#### Aiven API Client — `infrastructure/api/aiven/`
+
+```
+infrastructure/api/aiven/
+    ├── AivenApiClient.java          # REST-клиент к Aiven Management API
+    └── dto/
+        ├── AivenTopicListResponseDto.java
+        └── AivenTopicDeleteResponseDto.java
+```
+
+**AivenApiClient** — HTTP-клиент (RestAssured) для управления топиками через Aiven API:
+- `getTopicList()` → `GET /v1/project/{project}/service/{service}/topic`
+- `deleteTopic(name)` → `DELETE /v1/project/{project}/service/{service}/topic/{name}`
+- `deleteTopics(names)`, `deleteAllTestTopics()`, `verifyApiConnection()`
+
+Авторизация: Bearer token. DTO живут в пакете адаптера и не просачиваются в domain.
+
+#### Configuration — `config/`
 
 ```java
 @Config.LoadPolicy(Config.LoadType.MERGE)
 @Config.Sources({
-    "system:properties",
-    "system:env",
-    "classpath:config/${env}.properties",
+    "system:properties",      // -Dkafka.bootstrap.servers=...
+    "system:env",             // KAFKA_BOOTSTRAP_SERVERS=...
+    "classpath:config/${env}.properties",  // env=local/ci
     "classpath:config/default.properties"
 })
 public interface KafkaConfig extends Config { ... }
 ```
 
-Интерфейс содержит 40+ свойств, сгруппированных по разделам:
+**ConfigFactory** — создаёт singleton и вызывает `validateRequiredProperties()`:
+- Проверяет наличие `kafka.bootstrap.servers`
+- Проверяет SSL-свойства (5 полей) при `security.protocol=SSL/SASL_SSL`
+- Проверяет Aiven-свойства (3 поля) как группу
+- Проверяет REST API / Schema Registry пароли при наличии URL
 
-- **Connection** — `kafkaBootstrapServers()`, `securityProtocol()`
-- **SSL** — `sslTruststoreLocation/Password/Type`, `sslKeystoreLocation/Password/Type`, `sslKeyPassword`
-- **API** — `kafkaRestApiUrl/Username/Password`, `schemaRegistryUrl/Username/Password`
-- **Producer** — `producerAcks()` (default: `all`), `producerRetries()` (3), `producerEnableIdempotence()` (true), `producerMaxInFlightRequests()` (5), `producerBatchSize()` (16384), `producerLingerMs()` (10), `producerRequestTimeoutMs()` (30000)
-- **Consumer** — `consumerGroupIdBase()` (qa-test-group), `consumerAutoOffsetReset()` (earliest), `consumerEnableAutoCommit()` (false), `consumerSessionTimeoutMs()` (30000), `consumerMaxPollIntervalMs()` (300000), `consumerMaxPollRecords()` (500)
-- **Test** — `testTopicPrefix()` (qa-test), `testTopicPartitions()` (3), `testTopicReplicationFactor()` (1), `dlqTopicSuffix()` (-dlq), `testTimeoutSeconds()` (30), `cleanupTopics()` (true)
-- **Aiven** — `aivenApiUrl()` (https://api.aiven.io/v1), `aivenApiToken()`, `aivenProjectName()`, `aivenServiceName()`
+Выбрасывает **ConfigurationException** со списком всех отсутствующих свойств и гайдом по их заполнению.
 
-### ConfigFactory
+**Группы свойств в KafkaConfig:**
 
-Создаёт единственный инстанс `KafkaConfig` через `ConfigFactory.create(KafkaConfig.class)`.
+| Группа | Ключевые свойства | Описание |
+|--------|------------------|----------|
+| **Connection** | `kafkaBootstrapServers`, `securityProtocol` | Обязательно. |
+| **SSL** | `sslTruststoreLocation/Password/Type`, `sslKeystoreLocation/Password/Type`, `sslKeyPassword` | 5 полей. Обязательны при SSL/SASL_SSL. |
+| **Producer** | `producerAcks` (all), `producerRetries` (3), `producerEnableIdempotence` (true), `producerBatchSize` (16384) | Настройки публикации. |
+| **Consumer** | `consumerGroupIdBase` (qa-test-group), `consumerAutoOffsetReset` (earliest), `consumerEnableAutoCommit` (false), `consumerMaxPollRecords` (500) | Настройки потребления. |
+| **Test** | `testTopicPrefix` (qa-test), `testTopicPartitions` (3), `dlqTopicSuffix` (-dlq), `testTimeoutSeconds` (30) | Управление тестовыми топиками. |
+| **Aiven** | `aivenApiUrl`, `aivenApiToken`, `aivenProjectName`, `aivenServiceName` | 3 последних обязательны как группа. |
+| **REST API** | `kafkaRestApiUrl`, `kafkaRestApiUsername`, `kafkaRestApiPassword` | Password обязателен при наличии URL. |
+| **Schema Registry** | `kafkaSchemaRegistryUrl`, `kafkaSchemaRegistryUsername`, `kafkaSchemaRegistryPassword` | Password обязателен при наличии URL. |
 
----
+#### Utilities — `utils/`, `kafka/`, `metrics/`
 
-## Kafka-клиенты
+| Класс | Назначение |
+|-------|-----------|
+| **KafkaPropertiesBuilder** | Статические методы: `buildBaseProperties()`, `configureSecurity()`. Устраняет дублирование SSL-конфигурации между producer/consumer/admin. |
+| **KafkaTopicCleanupManager** | Удаление тестовых топиков через Aiven API или AdminClient. |
+| **KafkaAwaitHelper** | Async wait utilities для стабилизации rebalance. |
+| **RetryContext** | Прикрепление контекста retry к Allure-отчёту. |
+| **TestMetricsCollector** | Потокобезопасная коллекция метрик (AtomicLong, ConcurrentHashMap). `recordDuration()`, `recordError()`, `recordTestResult()`. |
 
-### KafkaPropertiesBuilder
+#### Legacy Exceptions — `exceptions/`
 
-Утилитный класс (только статические методы), устраняет дублирование между producer и consumer:
-
-```java
-// Общая база
-Properties props = KafkaPropertiesBuilder.buildBaseProperties(config);
-// → bootstrap.servers
-
-// SSL/TLS конфигурация
-KafkaPropertiesBuilder.configureSecurity(props, config);
-// → security.protocol, ssl.truststore.*, ssl.keystore.*, ssl.key.password
-```
-
-Применяется в `KafkaProducerManager`, `KafkaConsumerManager` и `KafkaTopicManager`.
-
-### KafkaProducerManager
-
-**Паттерн хранения:**
-```
-producerThreadLocal: ThreadLocal<KafkaProducer> — инстанс для текущего потока
-allProducers:        synchronized Set<WeakReference<KafkaProducer>> — трекинг всех инстансов
-```
-
-**Создание producer** (`ThreadLocal.withInitial(this::createProducer)`):
-- Base properties + serializers (StringSerializer key/value)
-- acks=all, retries=3, enable.idempotence=true, max.in.flight=5
-- batch.size=16384, linger.ms=10, request.timeout.ms=30000
-- SSL через `KafkaPropertiesBuilder.configureSecurity()`
-- Регистрация `WeakReference` в `allProducers`
-
-**Ключевые методы:**
-
-| Метод | Описание |
-|-------|----------|
-| `sendSync(KafkaMessageDto)` | Синхронная отправка с `future.get()`; обновляет offset/partition в DTO; метрики; категоризация ошибок (timeout/serialization/network) |
-| `sendAsync(KafkaMessageDto)` | Асинхронная отправка с callback; обновляет offset/partition |
-| `sendBatch(List<KafkaMessageDto>)` | Последовательный `sendSync()` для каждого сообщения |
-| `flush()` | `producer.flush()` для сброса буфера |
-| `close()` | Закрытие producer текущего потока + `ThreadLocal.remove()` |
-| `closeAll()` | **Критический метод**: итерирует `allProducers`, вызывает `close(5s)` на каждом живом инстансе; очищает set |
-| `getTrackedProducerCount()` | Количество живых WeakReference (для мониторинга) |
-
-**Категоризация ошибок sendSync:**
-```
-exception contains "timeout"      → KafkaProducerException.timeout()
-exception contains "serialization" → KafkaProducerException.serialization()
-exception contains "connection/network" → KafkaProducerException.network()
-иначе                              → KafkaProducerException(UNKNOWN) + context
-```
-
-### KafkaConsumerManager
-
-**Паттерн хранения:**
-```
-consumerThreadLocal: ThreadLocal<KafkaConsumer>
-groupIdThreadLocal:  ThreadLocal<String>
-allConsumers:        synchronized Set<WeakReference<KafkaConsumer>>
-```
-
-**Создание consumer** (явно через `createConsumer(groupId)`):
-- Base properties + StringDeserializer key/value
-- GROUP_ID = `consumerGroupIdBase + "-" + UUID.randomUUID()`
-- AUTO_OFFSET_RESET = earliest, ENABLE_AUTO_COMMIT = false
-- SESSION_TIMEOUT_MS = 30000, MAX_POLL_INTERVAL_MS = 300000
-- MAX_POLL_RECORDS = 500, FETCH_MIN_BYTES = 1, FETCH_MAX_WAIT_MS = 500
-
-**Ключевые методы:**
-
-| Метод | Описание |
-|-------|----------|
-| `initConsumer(topic)` | Создание consumer с UUID-groupId, `subscribe([topic])`, сохранение в ThreadLocal |
-| `initConsumer(topic, groupId)` | То же с явным groupId |
-| `subscribeToTopics(List<String>)` | Подписка на несколько топиков |
-| `poll(timeoutSeconds)` | Разовый poll; метрики; `KafkaTimeoutException` при таймауте |
-| `pollAll(maxAttempts)` | Опрос до опустошения топика |
-| `commitSync()` / `commitAsync()` | Ручной commit |
-| `commitOffset(topic, partition, offset)` | Commit конкретного offset (+1) |
-| `seekToBeginning(topic)` / `seekToEnd(topic)` | Перемотка |
-| `getPosition(topic, partition)` | Текущая позиция |
-| `close()` / `closeAll()` | Аналогично ProducerManager |
-| `getGroupId()` | Текущий groupId из ThreadLocal |
-
-### KafkaTopicManager
-
-Обёртка над `Admin` (AdminClient):
-- `createUniqueTopic()` → `qa-test-{UUID}` с `testTopicPartitions` партициями
-- `createTopicWithPartitions(int)` → `qa-test-{UUID}` с заданным числом партиций
-- `createTopic(name, partitions, replicationFactor)` → произвольный топик
-- `deleteTopic(name)` → `admin.deleteTopics()`
-- `listTopics()` → `Set<String>` имён топиков
-
-AdminClient создаётся с SSL-конфигурацией и `REQUEST_TIMEOUT_MS=30000`.
-
----
-
-## Слой тестов
-
-### BaseTest — жизненный цикл
-
-```
-@BeforeAll setUpAll()
-    └── Логирование параметров SSL и security protocol
-
-@BeforeEach setUp()
-    ├── new KafkaProducerManager(CONFIG)  → ALL_PRODUCER_MANAGERS.add()
-    ├── new KafkaConsumerManager(CONFIG)  → ALL_CONSUMER_MANAGERS.add()
-    ├── new KafkaTopicManager(CONFIG)     → ALL_TOPIC_MANAGERS.add()
-    └── createdTopics = new ArrayList<>()
-
-@AfterEach tearDown()
-    ├── Удаление topicов из createdTopics (с retry 5 раз, linear backoff 1-5с)
-    ├── safeClose(producerManager)
-    ├── safeClose(consumerManager)
-    └── safeClose(topicManager)
-
-@AfterAll globalCleanup()
-    ├── for manager in ALL_PRODUCER_MANAGERS: manager.closeAll()
-    ├── for manager in ALL_CONSUMER_MANAGERS: manager.closeAll()
-    ├── for manager in ALL_TOPIC_MANAGERS: manager.close()
-    └── Очистка всех Set-ов
-```
-
-**Создание топиков с retry:**
-```
-createTopicWithRetry(supplier)
-    attempts: 1..5
-    backoff: 3000 * attempt ms (3s, 6s, 9s, 12s, 15s)
-    каждая попытка: RetryContext.attachToAllure("Topic Creation")
-```
-
-### Паттерн "Consumer-First Initialization"
-
-Все тесты, требующие чтения сообщений, инициализируют consumer **до** отправки:
-
-```java
-// 1. Инициализация consumer и ожидание завершения rebalance
-consumerManager.initConsumer(topic);
-AsyncTestHelper.waitFor(5);       // ожидание rebalance (5с)
-consumerManager.poll(2);          // pre-warm poll (trigger partition assignment)
-AsyncTestHelper.waitFor(1);       // стабилизация
-
-// 2. Только теперь отправка сообщений
-producerManager.sendBatch(messages);
-producerManager.flush();
-AsyncTestHelper.waitFor(2);
-
-// 3. Polling с retry
-List<ConsumerRecordDto> records = AsyncTestHelper.pollWithRetry(consumerManager, 30, expectedCount);
-```
-
-### AllureKafkaListener
-
-`TestWatcher` implementation:
-
-```
-testSuccessful → attachTestInfo(PASSED) + recordTestResult(true)
-testFailed     → categorizeFailure() + recordError(category) + recordCategory() + recordTestResult(false)
-testAborted    → логирование + attachTestInfo(BROKEN)
-testDisabled   → логирование
-```
-
-**Категоризация сбоев (`categorizeFailure`):**
-
-| Паттерн в исключении | Категория Allure |
-|---------------------|-----------------|
-| TimeoutException | `KAFKA_TIMEOUT` |
-| SSLException / certificate | `SSL_ERROR` |
-| RebalanceException / rebalance | `CONSUMER_REBALANCE` |
-| Connection / NetworkException | `CONNECTION_ERROR` |
-| AssertionError | `TEST_ASSERTION` |
-| иное | `UNKNOWN_ERROR` |
-
----
-
-## Утилиты
-
-### AsyncTestHelper
-
-```java
-// Polling с retry (основной метод)
-pollWithRetry(consumer, timeoutSeconds, expectedMinMessages)
-    // Каждая итерация: consumer.poll(10s)
-    // Между итерациями: Thread.sleep(2000)
-    // Выход: size >= expectedMinMessages или истёк timeoutSeconds
-
-// Полный drain
-pollAllWithRetry(consumer, timeoutSeconds)
-
-// Ожидание (секунды)
-waitFor(int seconds)
-```
-
-### TestDataGenerator
-
-```java
-generateMessage(topic)
-    // key = UUID, value = "Test message " + UUID, timestamp = Instant.now()
-    
-generateMessages(topic, count)
-    // count сообщений с порядковыми key-ами
-    
-generateMessageWithKey(topic, key)
-    // фиксированный ключ для тестирования партиционирования
-```
-
----
-
-## Иерархия исключений
+> **Примечание**: Эти исключения унаследованы из старой архитектуры и будут мигрированы в `domain/exception` в следующих итерациях.
 
 ```
 KafkaTestException (RuntimeException)
     ├── ErrorType: TIMEOUT | NETWORK | CONFIGURATION | SERIALIZATION
     │              | REBALANCE | TOPIC_MANAGEMENT | UNKNOWN
-    ├── addContext(key, value) → накопление Map<String,String> контекста
+    ├── addContext(key, value) → накопление контекста
     │
     ├── KafkaProducerException
-    │       factory: timeout(topic, ms, cause)
-    │                serialization(topic, cause)
-    │                network(topic, cause)
-    │
     ├── KafkaConsumerException
-    │       factory: notInitialized(threadName)
-    │
-    ├── KafkaTimeoutException(operation, timeoutMs, cause)
+    ├── KafkaTimeoutException
     ├── KafkaRebalanceException
     ├── KafkaTopicManagementException
     └── TestDataException
@@ -312,70 +252,306 @@ KafkaTestException (RuntimeException)
 
 ---
 
-## Безопасность и SSL
+### 4. Test Layer — `src/test/java/tests/`
 
-Поддерживаемые конфигурации:
+#### BaseTest — жизненный цикл
 
-| `security.protocol` | Описание |
-|---------------------|----------|
-| `SSL` | Mutual TLS (keystore + truststore) — для Aiven |
-| `SASL_SSL` | SASL поверх TLS |
-| `PLAINTEXT` | Без шифрования (только local dev) |
+```
+@BeforeAll setUpAll()
+    └── Инициализация ConfigFactory и логирование параметров
 
-Keystore типы: `PKCS12` (keystore, от Aiven), `JKS` (truststore, от Aiven).
+@BeforeEach setUp()
+    ├── KafkaTestFacade facade = new KafkaTestFacade(CONFIG, consumerGroupId)
+    │       └── создаёт KafkaProducerAdapter, KafkaConsumerAdapter, KafkaAdminAdapter
+    │           и инжектит их в сервисы
+    │
+    ├── MessagePublishingService publishService = facade.getPublishService()
+    ├── MessageConsumptionService consumeService = facade.getConsumeService()
+    └── TopicManagementService topicService = facade.getTopicService()
 
-`KafkaPropertiesBuilder.configureSecurity()` добавляет SSL-свойства только при `SSL` или `SASL_SSL` протоколах.
+@AfterEach tearDown()
+    ├── Удаление созданных топиков (с retry 5 раз, backoff 1-5с)
+    └── facade.close() → закрывает все адаптеры текущего потока
+
+@AfterAll globalCleanup()
+    └── ALL_FACADES.forEach(f -> f.closeAll())
+            → вызывает closeAll() на всех адаптерах → очистка всех ThreadLocal
+```
+
+#### Паттерн "Consumer-First Initialization"
+
+Все consume-тесты инициализируют consumer до отправки для корректного rebalance:
+
+```java
+// 1. Создание топика
+Topic topic = topicService.createTopic(...);
+
+// 2. Подписка consumer и ожидание rebalance
+consumeService.subscribe(topic);
+KafkaAwaitHelper.waitFor(5);  // ожидание rebalance
+consumeService.poll(Duration.ofSeconds(2));  // pre-warm
+KafkaAwaitHelper.waitFor(1);  // стабилизация
+
+// 3. Публикация
+publishService.publishBatch(messages);
+publishService.flush();
+KafkaAwaitHelper.waitFor(2);
+
+// 4. Потребление
+Optional<Message> result = consumeService.consumeUntil(
+    msg -> msg.getKey().equals("target-key"),
+    Duration.ofSeconds(30)
+);
+```
+
+#### Test Listeners
+
+| Listener | Назначение |
+|----------|-----------|
+| **AllureKafkaListener** | `TestWatcher` impl: категоризация сбоев, прикрепление метрик к Allure, `recordTestResult()` |
+| **KafkaTestExecutionListener** | Логирование начала/окончания тестов |
+| **GlobalCleanupListener** | `@AfterAll` глобальный cleanup всех ресурсов |
+
+**Категоризация сбоев в AllureKafkaListener:**
+
+| Паттерн исключения | Allure Category |
+|-------------------|-----------------|
+| `TimeoutException` | KAFKA_TIMEOUT |
+| `SSLException` / `certificate` | SSL_ERROR |
+| `RebalanceException` / `rebalance` | CONSUMER_REBALANCE |
+| `Connection` / `NetworkException` | CONNECTION_ERROR |
+| `AssertionError` | TEST_ASSERTION |
+| прочее | UNKNOWN_ERROR |
+
+---
+
+## Потоки данных
+
+### Публикация сообщения
+
+```
+Test
+  ↓ publishService.publish(message)
+Application/MessagePublishingService
+  ↓ message.validate()
+  ↓ messagePublisher.publish(message) [port call]
+Infrastructure/KafkaProducerAdapter
+  ↓ toProducerRecord(message)
+  ↓ producer.send(record).get()
+  ↓ PublishResult.failureFrom() при ошибке
+  ↑ PublishResult.success() при успехе
+Application/MessagePublishingService
+  ↓ metrics.recordDuration()
+  ↑ возвращает PublishResult
+Test
+  ↓ Assertions.assertTrue(result.isSuccess())
+```
+
+### Потребление с условием
+
+```
+Test
+  ↓ consumeService.consumeUntil(predicate, timeout)
+Application/MessageConsumptionService
+  ↓ for (attempt in 1..maxAttempts)
+      ↓ result = messageConsumer.poll(pollTimeout) [port call]
+      ↓ if (any message matches predicate) → return Optional.of(msg)
+  ↓ все попытки исчерпаны → return Optional.empty()
+  ↑ Optional<Message>
+Test
+  ↓ assertTrue(result.isPresent())
+```
+
+### Ошибка с категоризацией
+
+```
+Infrastructure/KafkaProducerAdapter
+  ↓ producer.send() выбрасывает TimeoutException
+  ↓ catch (Exception e)
+      ↓ PublishResult.failureFrom(message, e.getMessage(), e)
+          ↓ KafkaErrorCategory.fromPublishException(e)
+              ↓ instanceof TimeoutException → TIMEOUT_ERROR
+          ↑ category=TIMEOUT_ERROR, retryable=true
+      ↑ PublishResult(success=false, category=TIMEOUT_ERROR)
+  ↑ return PublishResult
+Application/MessagePublishingService
+  ↑ передаёт результат выше
+Test
+  ↓ if (!result.isSuccess())
+      ↓ AllureKafkaListener ловит сбой теста
+          ↓ categorizeFailure() → attachCategory("KAFKA_TIMEOUT")
+          ↓ metrics.recordError("TIMEOUT_ERROR")
+```
+
+---
+
+## Безопасность и SSL/TLS
+
+Поддерживаемые протоколы:
+
+| `security.protocol` | Описание | Keystore/Truststore |
+|---------------------|----------|---------------------|
+| **SSL** | Mutual TLS | keystore.p12 (PKCS12), truststore.jks (JKS) |
+| **SASL_SSL** | SASL поверх TLS | То же + SASL credentials |
+| **PLAINTEXT** | Без шифрования | Не требуется (только local dev) |
+
+**KafkaPropertiesBuilder.configureSecurity()** добавляет SSL-свойства только при `SSL` или `SASL_SSL`:
+```java
+security.protocol = SSL
+ssl.truststore.location = /path/to/ca-chain.jks
+ssl.truststore.password = ***
+ssl.truststore.type = JKS
+ssl.keystore.location = /path/to/service.keystore.p12
+ssl.keystore.password = ***
+ssl.keystore.type = PKCS12
+ssl.key.password = ***
+```
+
+Файлы сертификатов получаются из Aiven Console → Service → Overview → Download SSL certificates.
 
 ---
 
 ## Параллельное выполнение
 
-Управляется через два уровня:
+Управление через два уровня:
 
 **JUnit Platform** (`junit-platform.properties`):
 ```properties
-junit.jupiter.execution.parallel.enabled = false       # по умолчанию
+junit.jupiter.execution.parallel.enabled = false  # default
 junit.jupiter.execution.parallel.config.strategy = fixed
 junit.jupiter.execution.parallel.config.fixed.parallelism = 1
 ```
 
 **Maven Surefire** (профиль `parallel`):
 ```xml
-<junit.jupiter.execution.parallel.enabled>true</junit.jupiter.execution.parallel.enabled>
-<junit.jupiter.execution.parallel.mode.default>concurrent</junit.jupiter.execution.parallel.mode.default>
-<junit.jupiter.execution.parallel.mode.classes.default>concurrent</junit.jupiter.execution.parallel.mode.classes.default>
-<junit.jupiter.execution.parallel.config.fixed.max-pool-size>${thread.count}</junit.jupiter.execution.parallel.config.fixed.max-pool-size>
+<properties>
+    <junit.jupiter.execution.parallel.enabled>true</junit.jupiter.execution.parallel.enabled>
+    <junit.jupiter.execution.parallel.mode.default>concurrent</junit.jupiter.execution.parallel.mode.default>
+    <junit.jupiter.execution.parallel.mode.classes.default>concurrent</junit.jupiter.execution.parallel.mode.classes.default>
+    <junit.jupiter.execution.parallel.config.fixed.max-pool-size>${thread.count}</junit.jupiter.execution.parallel.config.fixed.max-pool-size>
+</properties>
 ```
 
-**Важно:** Параллельные тесты должны использовать уникальные топики (обеспечивается UUID-суффиксом) и уникальные consumer group ID (UUID в `initConsumer()`).
+**Безопасность параллельных тестов:**
+1. Уникальные топики: `qa-test-{UUID}` генерируется для каждого теста
+2. Уникальные consumer groups: `qa-test-group-{UUID}` при `initConsumer()`
+3. ThreadLocal для producer/consumer: каждый поток имеет свой Kafka-клиент
+4. WeakReference tracking: `closeAll()` очищает клиенты из всех потоков
 
 ---
 
-## Aiven API Controller
+## Архитектурные принципы
 
+### 1. Dependency Rule (Hexagonal Architecture)
+
+```
+Test → Application → Domain ← Infrastructure
+         ↓ depends on      ↑ implements
+      Domain Ports       Domain Ports
+```
+
+Зависимости направлены внутрь:
+- Infrastructure зависит от Domain (implements Ports)
+- Application зависит от Domain (uses Ports)
+- Domain **не зависит** ни от чего
+
+### 2. Single Responsibility
+
+Каждый слой решает одну задачу:
+- **Domain**: бизнес-правила, валидация
+- **Application**: оркестрация use cases
+- **Infrastructure**: интеграция с внешними системами
+- **Tests**: проверка требований
+
+### 3. Inversion of Control
+
+Application не создаёт адаптеры напрямую — они инжектятся через конструктор:
 ```java
-// GET /v1/project/{project}/service/{service}/topic
-List<String> topics = controller.getTopicList();
-
-// DELETE /v1/project/{project}/service/{service}/topic/{topic}
-controller.deleteTopic(topicName);
+public MessagePublishingService(MessagePublisher publisher) { ... }
 ```
 
-Авторизация: `Authorization: Bearer {aivenApiToken}`
+Это позволяет подменить `KafkaProducerAdapter` на mock в unit-тестах сервисов.
 
-RestAssured RequestSpec логирует все запросы/ответы через Allure filter (`allure-rest-assured`).
+### 4. Fail-Fast Configuration
+
+`ConfigFactory.validateRequiredProperties()` проверяет все обязательные свойства до первого обращения к Kafka. При отсутствии — выбрасывает `ConfigurationException` со списком недостающих полей и инструкциями по их заполнению.
+
+### 5. Explicit Error Handling
+
+- `PublishResult` / `ConsumeResult` вместо выброса исключений
+- `KafkaErrorCategory` для категоризации всех ошибок
+- `Optional<Message>` для "не найдено" vs `MessageNotFoundException` для "обязательно должно быть"
+- `isRetryable()` флаг для принятия решения о retry
+
+### 6. Thread Safety
+
+- ThreadLocal для Kafka-клиентов
+- ConcurrentHashMap / AtomicLong в метриках
+- synchronized блоки при доступе к `Set<WeakReference>`
+- `closeAll()` для глобальной очистки из всех потоков
 
 ---
 
-## TestMetricsCollector
+## Недостатки текущей архитектуры (Technical Debt)
 
-Потокобезопасный (`AtomicLong`, `ConcurrentHashMap`):
+> Эти элементы будут устранены в следующих итерациях рефакторинга.
 
+1. **Legacy Exceptions** (`framework/exceptions/`) — не в Domain layer
+2. **Отсутствие RetryPolicy в Domain** — retry-логика размазана по сервисам
+3. **Отсутствие EventBus для test listeners** — прямая зависимость от Allure
+4. **Неполное покрытие unit-тестами сервисов** — нужны тесты с mock-портами
+5. **KafkaTopicCleanupManager** использует и Aiven API, и AdminClient — дублирование
+6. **KafkaAwaitHelper.waitFor()** — примитивный sleep вместо condition wait
+
+---
+
+## Miграция старой архитектуры (до Hexagonal)
+
+До рефакторинга фреймворк использовал "Manager" паттерн:
 ```
-recordDuration(operation, millis)   // "producer_send_sync", "consumer_poll"
-recordError(category)               // инкремент счётчика по категории
-recordCategory(category)            // для Allure attachment
-recordTestResult(passed)            // pass/fail счётчики
+KafkaProducerManager  → KafkaProducerAdapter (теперь)
+KafkaConsumerManager  → KafkaConsumerAdapter (теперь)
+KafkaTopicManager     → KafkaAdminAdapter (теперь)
 ```
 
-Данные прикрепляются к Allure-отчёту в `AllureKafkaListener.attachTestInfo()`.
+Ключевые изменения:
+- Менеджеры были application layer, но работали с Kafka напрямую
+- Теперь адаптеры в infrastructure, сервисы в application
+- Добавлен domain layer с моделями и портами
+- DTO убраны из app-пакета в infrastructure
+- Единая таксономия ошибок `KafkaErrorCategory`
+
+---
+
+## Дальнейшее развитие
+
+### Краткосрочные задачи (Sprint 1-2)
+- [x] Создать `TopicRepository` port
+- [x] Переместить `AivenApiController` в infrastructure
+- [x] Объединить `PublishResult.ErrorCategory` и `ConsumeResult.ErrorCategory` → `KafkaErrorCategory`
+- [ ] Удалить `@Deprecated` классы (старые DTO, `AivenApiController` из `framework/api`)
+- [ ] Мигрировать legacy exceptions в `domain/exception`
+- [ ] Покрыть application services unit-тестами с mock-портами
+
+### Среднесрочные задачи (Sprint 3-4)
+- [ ] Добавить `RetryPolicy` в domain
+- [ ] Реализовать EventBus для decoupling listeners
+- [ ] Заменить `Thread.sleep()` на condition-based wait
+- [ ] Унифицировать `KafkaTopicCleanupManager` (один путь через порт)
+
+### Долгосрочные задачи (Strategic)
+- [ ] Поддержка других брокеров (Confluent Cloud, MSK)
+- [ ] Поддержка Schema Registry (Avro/Protobuf)
+- [ ] Транзакционный API для multi-topic atomic writes
+- [ ] Performance benchmarking framework
+- [ ] Cloud-native configuration (Vault, AWS Secrets Manager)
+
+---
+
+## Ссылки на дополнительную документацию
+
+- [RUN_INSTRUCTIONS.md](RUN_INSTRUCTIONS.md) — как запускать тесты локально и в CI
+- [SECURITY_GUIDE.md](SECURITY_GUIDE.md) — настройка SSL/TLS сертификатов
+- [DOCKER.md](DOCKER.md) — Docker-образ для тестов
+- [TEST_CASES_MATRIX.md](TEST_CASES_MATRIX.md) — полная матрица тест-кейсов
+- [GITHUB_SECRETS_SETUP.md](GITHUB_SECRETS_SETUP.md) — настройка GitHub Actions secrets
