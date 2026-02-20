@@ -147,22 +147,129 @@ public class KafkaProducerAdapter implements MessagePublisher {
         return future;
     }
 
+    /**
+     * Publishes a batch of messages with true async pipelining.
+     *
+     * <h3>Algorithm</h3>
+     * <ol>
+     *   <li>Fire all {@code send(record, callback)} calls without blocking —
+     *       Kafka's internal RecordAccumulator batches them and respects
+     *       {@code linger.ms} / {@code batch.size}.</li>
+     *   <li>Call {@code flush()} once to force the accumulator to drain,
+     *       ensuring all records are handed to the network layer before we
+     *       start waiting for ACKs.</li>
+     *   <li>Collect results via {@code CompletableFuture.allOf().join()} —
+     *       a single wait point instead of N sequential round-trips.</li>
+     * </ol>
+     *
+     * <h3>Why this is ×N faster than the old loop</h3>
+     * The previous implementation called {@code publish()} per message, which
+     * did {@code future.get()} after every send.  This serialised all network
+     * round-trips: send₁ → ACK₁ → send₂ → ACK₂ → …  With a broker RTT of
+     * ~5 ms and 1 000 messages that is 5 seconds of pure waiting.
+     * With pipelining all sends are in-flight simultaneously; wall-clock time
+     * ≈ max(single-message latency) rather than sum(all latencies).
+     *
+     * <h3>Back-pressure for very large batches</h3>
+     * When {@code messages.size()} exceeds {@link #BATCH_PIPELINE_CHUNK_SIZE}
+     * the list is processed in chunks.  This prevents the internal
+     * {@code RecordAccumulator} buffer from filling up and blocking the
+     * calling thread, which would silently re-introduce sequential behaviour.
+     *
+     * @param messages messages to publish; must not be {@code null}
+     * @return results in the same order as the input list
+     */
     @Override
     public List<PublishResult> publishBatch(List<Message> messages) {
-        List<PublishResult> results = new ArrayList<>();
-
-        for (Message message : messages) {
-            results.add(publish(message));
+        if (messages == null || messages.isEmpty()) {
+            return Collections.emptyList();
         }
 
-        return results;
+        long startTime = System.currentTimeMillis();
+        log.debug("publishBatch started: {} messages", messages.size());
+
+        List<PublishResult> allResults = new ArrayList<>(messages.size());
+
+        // Process in chunks to avoid overwhelming the RecordAccumulator buffer
+        int total = messages.size();
+        for (int chunkStart = 0; chunkStart < total; chunkStart += BATCH_PIPELINE_CHUNK_SIZE) {
+            int chunkEnd = Math.min(chunkStart + BATCH_PIPELINE_CHUNK_SIZE, total);
+            List<Message> chunk = messages.subList(chunkStart, chunkEnd);
+            allResults.addAll(publishChunk(chunk));
+        }
+
+        long duration = System.currentTimeMillis() - startTime;
+        long succeeded = allResults.stream().filter(PublishResult::isSuccess).count();
+        log.info("publishBatch complete: {}/{} succeeded in {}ms (avg {}ms/msg)",
+                succeeded, total, duration,
+                total > 0 ? duration / total : 0);
+
+        return allResults;
     }
+
+    /**
+     * Sends one chunk of messages in a fully-pipelined manner and returns
+     * results in input order.
+     *
+     * <p>Steps:
+     * <ol>
+     *   <li>Fire all {@code send()} calls — no blocking.</li>
+     *   <li>{@code flush()} — forces the accumulator to hand records to
+     *       the network thread; callbacks are guaranteed to fire after this.</li>
+     *   <li>{@code CompletableFuture.allOf().join()} — single wait point.</li>
+     * </ol>
+     */
+    private List<PublishResult> publishChunk(List<Message> chunk) {
+        // Step 1 — fire all sends without blocking
+        List<CompletableFuture<PublishResult>> futures = new ArrayList<>(chunk.size());
+        for (Message message : chunk) {
+            futures.add(publishAsync(message));
+        }
+
+        // Step 2 — flush: drains the RecordAccumulator so all records above
+        //           are handed to the I/O thread before we wait for callbacks.
+        //           Without flush() callbacks might not fire until the next poll
+        //           or linger.ms expiry, which would stall allOf().join() below.
+        getProducer().flush();
+
+        // Step 3 — single wait point: collect all results preserving order
+        try {
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        } catch (Exception e) {
+            // allOf() itself does not throw for individual failures —
+            // each future already encodes failure as PublishResult.failure().
+            // A join() exception means something unexpected (e.g. cancellation).
+            log.error("Unexpected error in publishChunk allOf: {}", e.getMessage(), e);
+        }
+
+        return futures.stream()
+                .map(CompletableFuture::join)
+                .toList();
+    }
+
+    /**
+     * Maximum number of messages sent in a single pipelined chunk.
+     * Prevents the {@code RecordAccumulator} buffer (default 32 MB) from
+     * filling when publishing very large batches (e.g. TC-033 with 1 000 msgs).
+     * Tune via system property {@code kafka.batch.chunk.size} if needed.
+     */
+    private static final int BATCH_PIPELINE_CHUNK_SIZE =
+            Integer.getInteger("kafka.batch.chunk.size", 200);
 
     @Override
     public CompletableFuture<List<PublishResult>> publishBatchAsync(List<Message> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return CompletableFuture.completedFuture(Collections.emptyList());
+        }
+
+        // Fire all sends immediately — no chunking needed for the async variant
+        // because the caller controls when to block.
         List<CompletableFuture<PublishResult>> futures = messages.stream()
                 .map(this::publishAsync)
                 .toList();
+
+        // Flush so the RecordAccumulator drains without waiting for linger.ms
+        getProducer().flush();
 
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                 .thenApply(v -> futures.stream()
