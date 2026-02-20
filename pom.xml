@@ -178,11 +178,16 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>${maven-surefire-plugin.version}</version>
                 <configuration>
-                    <!-- ОТКЛЮЧАЕМ Surefire parallel - используем ТОЛЬКО JUnit 5 -->
+                    <!-- Surefire-level parallel отключён — параллелизм управляется только через JUnit 5 -->
                     <parallel>none</parallel>
                     <threadCount>1</threadCount>
                     <perCoreThreadCount>false</perCoreThreadCount>
                     <groups>${test.groups}</groups>
+                    <reportsDirectory>${project.build.directory}/surefire-reports</reportsDirectory>
+                    <!-- Generate XML reports for CI systems -->
+                    <useFile>true</useFile>
+                    <!-- Flaky test retry -->
+                    <rerunFailingTestsCount>2</rerunFailingTestsCount>
                     <systemPropertyVariables>
                         <allure.results.directory>${project.build.directory}/allure-results</allure.results.directory>
                         <!-- Max pool size to prevent ForkJoinPool from creating extra threads -->
@@ -212,19 +217,6 @@
                     <reportVersion>${allure.version}</reportVersion>
                     <resultsDirectory>${project.build.directory}/allure-results</resultsDirectory>
                     <reportDirectory>${project.build.directory}/allure-report</reportDirectory>
-                </configuration>
-            </plugin>
-
-            <plugin>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <configuration>
-                    <reportsDirectory>${project.build.directory}/surefire-reports</reportsDirectory>
-
-                    <!-- Generate XML reports for CI systems -->
-                    <useFile>true</useFile>
-
-                    <!-- Flaky test retry -->
-                    <rerunFailingTestsCount>2</rerunFailingTestsCount>
                 </configuration>
             </plugin>
         </plugins>
