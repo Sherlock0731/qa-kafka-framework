@@ -137,7 +137,7 @@ public class KafkaPropertiesBuilder {
 
         // Configure keystore (client certificate for mutual TLS)
         props.put("ssl.keystore.location", config.sslKeystoreLocation());
-        props.put("ssl.keystore.password", config.sslKeyPassword());
+        props.put("ssl.keystore.password", config.sslKeystorePassword());
         props.put("ssl.keystore.type", config.sslKeystoreType());
 
         // Optional: separate password for private key (if different from keystore password)

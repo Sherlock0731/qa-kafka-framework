@@ -10,6 +10,7 @@ import qa.autotest.framework.config.KafkaConfig;
 import qa.autotest.framework.domain.model.*;
 import tests.listeners.AllureKafkaListener;
 import tests.listeners.KafkaTestExecutionListener;
+import qa.autotest.framework.metrics.TestMetricsExtension;
 
 import java.time.Duration;
 import java.util.*;
@@ -34,7 +35,7 @@ import java.util.*;
  * @version 2.0.0 - Hexagonal Architecture
  */
 @Slf4j
-@ExtendWith({AllureKafkaListener.class, KafkaTestExecutionListener.class})
+@ExtendWith({TestMetricsExtension.class, AllureKafkaListener.class, KafkaTestExecutionListener.class})
 public abstract class BaseTest {
 
     protected static final KafkaConfig CONFIG = ConfigFactory.getConfig();

@@ -13,47 +13,76 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Collects and tracks test execution metrics for analysis
- * Integrates with Allure for reporting
+ * Per-suite metrics collector for Kafka test execution.
+ *
+ * <h3>Threading model</h3>
+ * One instance is created per test class and stored in
+ * {@link org.junit.jupiter.api.extension.ExtensionContext.Store} with
+ * class-level scope by {@link TestMetricsExtension}.  Parallel tests within
+ * the same class share one instance — all counters use atomic types so
+ * concurrent increments are safe.  Tests from <em>different</em> classes each
+ * get their own instance, so metrics never bleed across suites.
+ *
+ * <h3>Migration from static singleton</h3>
+ * Previously all fields were {@code static}, which caused two problems in
+ * parallel execution:
+ * <ul>
+ *   <li>Metrics from unrelated suites mixed in the same maps.</li>
+ *   <li>{@code reset()} called {@code ConcurrentHashMap.clear()} while other
+ *       threads were writing — a non-atomic sequence that lost increments.</li>
+ * </ul>
+ * Now every field is an <em>instance</em> field.  No {@code static} data,
+ * no {@code reset()}, no race on clear.
+ *
+ * <h3>Obtaining an instance</h3>
+ * <pre>{@code
+ * // In an extension or listener:
+ * TestMetricsCollector metrics = TestMetricsExtension.getCollector(context);
+ * metrics.recordTestResult(true);
+ * }</pre>
  */
 @Slf4j
 public class TestMetricsCollector {
 
-    private static final Map<String, AtomicInteger> errorCounts = new ConcurrentHashMap<>();
-    private static final Map<String, AtomicInteger> categoryCounts = new ConcurrentHashMap<>();
-    private static final Map<String, AtomicLong> operationDurations = new ConcurrentHashMap<>();
-    private static final AtomicInteger totalTests = new AtomicInteger(0);
-    private static final AtomicInteger passedTests = new AtomicInteger(0);
-    private static final AtomicInteger failedTests = new AtomicInteger(0);
+    // ── Per-instance counters (instance fields — no static state) ────────────
 
-    private static final Gson gson = new GsonBuilder().setPrettyPrinting().create();
+    private final Map<String, AtomicInteger> errorCounts      = new ConcurrentHashMap<>();
+    private final Map<String, AtomicInteger> categoryCounts   = new ConcurrentHashMap<>();
+    private final Map<String, AtomicLong>   operationDurations = new ConcurrentHashMap<>();
+    private final AtomicInteger totalTests  = new AtomicInteger(0);
+    private final AtomicInteger passedTests = new AtomicInteger(0);
+    private final AtomicInteger failedTests = new AtomicInteger(0);
 
-    /**
-     * Record an error occurrence by category
-     */
-    public static void recordError(String category) {
-        errorCounts.computeIfAbsent(category, k -> new AtomicInteger()).incrementAndGet();
-        log.debug("Error recorded: {}", category);
+    /** Suite name — used as the Allure attachment label. */
+    private final String suiteName;
+
+    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+
+    public TestMetricsCollector(String suiteName) {
+        this.suiteName = suiteName;
+        log.debug("TestMetricsCollector created for suite: {}", suiteName);
     }
 
-    /**
-     * Record a test categorization
-     */
-    public static void recordCategory(String category) {
+    // ── Write operations ──────────────────────────────────────────────────────
+
+    /** Records a failed test's error category. */
+    public void recordError(String category) {
+        errorCounts.computeIfAbsent(category, k -> new AtomicInteger()).incrementAndGet();
+        log.debug("Error recorded [suite={}]: {}", suiteName, category);
+    }
+
+    /** Records the failure category (for distribution charts). */
+    public void recordCategory(String category) {
         categoryCounts.computeIfAbsent(category, k -> new AtomicInteger()).incrementAndGet();
     }
 
-    /**
-     * Record operation duration in milliseconds
-     */
-    public static void recordDuration(String operation, long durationMs) {
+    /** Accumulates wall-clock duration for a named operation. */
+    public void recordDuration(String operation, long durationMs) {
         operationDurations.computeIfAbsent(operation, k -> new AtomicLong()).addAndGet(durationMs);
     }
 
-    /**
-     * Record test result
-     */
-    public static void recordTestResult(boolean passed) {
+    /** Increments the total/passed/failed counters. */
+    public void recordTestResult(boolean passed) {
         totalTests.incrementAndGet();
         if (passed) {
             passedTests.incrementAndGet();
@@ -62,103 +91,74 @@ public class TestMetricsCollector {
         }
     }
 
-    /**
-     * Get error count for a specific category
-     */
-    public static int getErrorCount(String category) {
+    // ── Read operations ───────────────────────────────────────────────────────
+
+    /** Returns the error count for {@code category}, or 0 if never recorded. */
+    public int getErrorCount(String category) {
         AtomicInteger count = errorCounts.get(category);
         return count != null ? count.get() : 0;
     }
 
-    /**
-     * Get all metrics as a map
-     */
-    public static Map<String, Object> getAllMetrics() {
+    /** Snapshot of all metrics as a plain-object map (safe to serialize). */
+    public Map<String, Object> getAllMetrics() {
         Map<String, Object> metrics = new ConcurrentHashMap<>();
 
-        // Error counts
         Map<String, Integer> errors = new ConcurrentHashMap<>();
-        errorCounts.forEach((key, value) -> errors.put(key, value.get()));
+        errorCounts.forEach((k, v) -> errors.put(k, v.get()));
         metrics.put("error_counts", errors);
 
-        // Category distribution
         Map<String, Integer> categories = new ConcurrentHashMap<>();
-        categoryCounts.forEach((key, value) -> categories.put(key, value.get()));
+        categoryCounts.forEach((k, v) -> categories.put(k, v.get()));
         metrics.put("category_distribution", categories);
 
-        // Operation durations
         Map<String, Long> durations = new ConcurrentHashMap<>();
-        operationDurations.forEach((key, value) -> durations.put(key, value.get()));
+        operationDurations.forEach((k, v) -> durations.put(k, v.get()));
         metrics.put("operation_durations_ms", durations);
 
-        // Test summary
         Map<String, Integer> summary = new ConcurrentHashMap<>();
-        summary.put("total", totalTests.get());
+        summary.put("total",  totalTests.get());
         summary.put("passed", passedTests.get());
         summary.put("failed", failedTests.get());
         metrics.put("test_summary", summary);
 
+        metrics.put("suite", suiteName);
+
         return metrics;
     }
 
-    /**
-     * Attach metrics to Allure report
-     */
-    public static void attachMetricsToAllure() {
-        Map<String, Object> metrics = getAllMetrics();
-        String jsonMetrics = gson.toJson(metrics);
+    /** Serialises all metrics to a pretty-printed JSON string. */
+    public String getMetricsSummary() {
+        return GSON.toJson(getAllMetrics());
+    }
 
+    /**
+     * Attaches this suite's metrics snapshot to the current Allure report.
+     * Called automatically by {@link TestMetricsExtension#afterAll} at
+     * end of each test class.
+     */
+    public void attachMetricsToAllure() {
+        String json = getMetricsSummary();
         Allure.addAttachment(
-                "Test Execution Metrics",
+                "Test Execution Metrics — " + suiteName,
                 "application/json",
-                new ByteArrayInputStream(jsonMetrics.getBytes(StandardCharsets.UTF_8)),
+                new ByteArrayInputStream(json.getBytes(StandardCharsets.UTF_8)),
                 ".json"
         );
-
-        log.info("Metrics attached to Allure report");
+        log.info("Metrics attached to Allure for suite: {}", suiteName);
     }
 
-    /**
-     * Get metrics summary as formatted string
-     */
-    public static String getMetricsSummary() {
-        Map<String, Object> metrics = getAllMetrics();
-        return gson.toJson(metrics);
-    }
-
-    /**
-     * Reset all metrics (use for test isolation if needed)
-     */
-    public static void reset() {
-        errorCounts.clear();
-        categoryCounts.clear();
-        operationDurations.clear();
-        totalTests.set(0);
-        passedTests.set(0);
-        failedTests.set(0);
-        log.info("Metrics reset");
-    }
-
-    /**
-     * Log current metrics
-     */
-    public static void logMetrics() {
-        log.info("=== Test Metrics Summary ===");
-        log.info("Total Tests: {}", totalTests.get());
-        log.info("Passed: {}, Failed: {}", passedTests.get(), failedTests.get());
-
+    /** Logs a human-readable summary to the test output. */
+    public void logMetrics() {
+        log.info("=== Metrics [{}] ===", suiteName);
+        log.info("Total: {}, Passed: {}, Failed: {}",
+                totalTests.get(), passedTests.get(), failedTests.get());
         if (!errorCounts.isEmpty()) {
-            log.info("Error Distribution:");
-            errorCounts.forEach((category, count) ->
-                    log.info("  {}: {}", category, count.get())
-            );
+            errorCounts.forEach((cat, cnt) ->
+                    log.info("  error/{}: {}", cat, cnt.get()));
         }
-
         if (!operationDurations.isEmpty()) {
-            log.info("Operation Durations:");
-            operationDurations.forEach((operation, duration) ->
-                    log.info("  {}: {} ms", operation, duration.get())
-            );
+            operationDurations.forEach((op, ms) ->
+                    log.info("  duration/{}: {} ms", op, ms.get()));
         }
     }
 }
