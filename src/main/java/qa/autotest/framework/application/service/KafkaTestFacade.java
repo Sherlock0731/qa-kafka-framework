@@ -3,383 +3,298 @@ package qa.autotest.framework.application.service;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import qa.autotest.framework.config.KafkaConfig;
+import qa.autotest.framework.domain.exception.MessageNotFoundException;
 import qa.autotest.framework.domain.model.*;
-import qa.autotest.framework.infrastructure.kafka.adapter.KafkaAdminAdapter;
-import qa.autotest.framework.infrastructure.kafka.adapter.KafkaConsumerAdapter;
-import qa.autotest.framework.infrastructure.kafka.adapter.KafkaProducerAdapter;
+import qa.autotest.framework.domain.port.MessageConsumer;
+import qa.autotest.framework.domain.port.MessagePublisher;
+import qa.autotest.framework.domain.port.TopicRepository;
+import qa.autotest.framework.infrastructure.kafka.adapter.KafkaAdapterFactory;
+import qa.autotest.framework.infrastructure.kafka.adapter.KafkaAdapterFactory.KafkaAdapters;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * Application Facade: KafkaTestFacade
  * <p>
- * Provides simplified API for test classes.
- * Hides complexity of Hexagonal Architecture from tests.
- * <p>
- * This is the primary entry point for tests - follows Facade pattern.
+ * Provides a simplified, domain-oriented API for test classes.
+ *
+ * <h3>DIP compliance</h3>
+ * Imports only port interfaces ({@link MessagePublisher}, {@link MessageConsumer},
+ * {@link TopicRepository}) and {@link KafkaAdapterFactory}/{@link KafkaAdapters}.
+ * No concrete adapter class ({@code KafkaProducerAdapter} etc.) is referenced.
+ * Lifecycle and metrics are captured as {@code Runnable} / {@code Supplier<String>}
+ * lambdas — zero concrete adapter types in fields.
+ *
+ * <h3>Two construction modes</h3>
+ * <ol>
+ *   <li><b>Convenience</b> — {@code new KafkaTestFacade(config)} — used by
+ *       {@code BaseTest}, delegates to {@link KafkaAdapterFactory}.</li>
+ *   <li><b>Primary</b> — accepts port interfaces directly — for unit tests
+ *       with mocks, no real Kafka connection needed.</li>
+ * </ol>
+ *
+ * @version 2.1.0
  */
 @Slf4j
 @Getter
 public class KafkaTestFacade implements AutoCloseable {
 
-    // Infrastructure adapters
-    private final KafkaProducerAdapter producerAdapter;
-    private final KafkaConsumerAdapter consumerAdapter;
-    private final KafkaAdminAdapter adminAdapter;
+    // ── Application services (depend on port interfaces only) ─────────────────
 
-    // Application services
     private final MessagePublishingService publishingService;
     private final MessageConsumptionService consumptionService;
     private final TopicManagementService topicManagementService;
 
+    // ── Metadata ──────────────────────────────────────────────────────────────
+
     private final KafkaConfig config;
     private final String consumerGroupId;
 
+    // ── Lifecycle & metrics — stored as lambdas, no concrete adapter types ────
+
+    private final Runnable closeAllAction;
+    private final Supplier<String> metricsSupplier;
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Convenience constructor — delegates to KafkaAdapterFactory
+    // ═══════════════════════════════════════════════════════════════════════════
+
     /**
-     * Constructor: Initializes complete Hexagonal Architecture
+     * Production / integration-test constructor.
+     * Delegates adapter creation to {@link KafkaAdapterFactory}.
+     * Captures {@code closeAll()} and {@code metrics()} as lambdas so no
+     * concrete adapter type leaks into this Application-layer class.
      * <p>
-     * Creates:
-     * 1. Infrastructure adapters (outer layer)
-     * 2. Application services (middle layer)
-     * 3. Wires them together via ports (interfaces)
+     * Called by {@code BaseTest.setUp()} — no existing call sites need to change.
      */
     public KafkaTestFacade(KafkaConfig config) {
+        KafkaAdapters adapters = KafkaAdapterFactory.create(config);
+
+        this.publishingService = new MessagePublishingService(adapters.publisher());
+        this.consumptionService = new MessageConsumptionService(adapters.consumer());
+        this.topicManagementService = new TopicManagementService(adapters.topicRepository());
+
         this.config = config;
-        this.consumerGroupId = "qa-test-group-" + UUID.randomUUID();
+        this.consumerGroupId = adapters.consumerGroupId();
+        this.closeAllAction = adapters::closeAll;
+        this.metricsSupplier = adapters::metrics;
 
-        log.debug("Initializing KafkaTestFacade with Hexagonal Architecture");
-
-        // Create infrastructure adapters
-        this.producerAdapter = new KafkaProducerAdapter(config);
-        this.consumerAdapter = new KafkaConsumerAdapter(config, consumerGroupId);
-        this.adminAdapter = new KafkaAdminAdapter(config);
-
-        // Create application services (depend on ports)
-        this.publishingService = new MessagePublishingService(producerAdapter);
-        this.consumptionService = new MessageConsumptionService(consumerAdapter);
-        this.topicManagementService = new TopicManagementService(adminAdapter);
-
-        log.info("KafkaTestFacade initialized: groupId={}", consumerGroupId);
+        log.info("KafkaTestFacade initialized [groupId={}]", consumerGroupId);
     }
 
-    // ==================== Simplified Publishing API ====================
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Primary constructor — accepts port interfaces (unit tests / mocks)
+    // ═══════════════════════════════════════════════════════════════════════════
 
     /**
-     * Publishes a message (simplified API)
+     * Unit-test constructor. Accepts port interfaces directly.
+     * {@code closeAll()} and {@code getMetrics()} are no-ops in this mode.
+     *
+     * <pre>{@code
+     * KafkaTestFacade facade = new KafkaTestFacade(
+     *     mock(MessagePublisher.class),
+     *     mock(MessageConsumer.class),
+     *     mock(TopicRepository.class),
+     *     config,
+     *     "test-group-1"
+     * );
+     * }</pre>
      */
+    public KafkaTestFacade(
+            MessagePublisher publisher,
+            MessageConsumer consumer,
+            TopicRepository topicRepository,
+            KafkaConfig config,
+            String consumerGroupId) {
+
+        this.publishingService = new MessagePublishingService(publisher);
+        this.consumptionService = new MessageConsumptionService(consumer);
+        this.topicManagementService = new TopicManagementService(topicRepository);
+
+        this.config = config;
+        this.consumerGroupId = consumerGroupId;
+        this.closeAllAction = () -> {
+        };
+        this.metricsSupplier = () -> "N/A (unit-test mode)";
+
+        log.info("KafkaTestFacade initialized in unit-test mode [groupId={}]", consumerGroupId);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Publishing API
+    // ═══════════════════════════════════════════════════════════════════════════
+
     public PublishResult publish(String topicName, String key, String content) {
-        Topic topic = Topic.builder().name(topicName).build();
-        Message message = Message.builder()
-                .topic(topic)
-                .key(key)
-                .content(content)
-                .build();
-
-        return publishingService.publishMessage(message);
+        return publishingService.publishMessage(Message.builder()
+                .topic(Topic.builder().name(topicName).build())
+                .key(key).content(content).build());
     }
 
-    /**
-     * Publishes a message with headers
-     */
-    public PublishResult publish(String topicName, String key, String content, java.util.Map<String, String> headers) {
-        Topic topic = Topic.builder().name(topicName).build();
-        Message message = Message.builder()
-                .topic(topic)
-                .key(key)
-                .content(content)
-                .headers(headers)
-                .build();
-
-        return publishingService.publishMessage(message);
+    public PublishResult publish(String topicName, String key, String content, Map<String, String> headers) {
+        return publishingService.publishMessage(Message.builder()
+                .topic(Topic.builder().name(topicName).build())
+                .key(key).content(content).headers(headers).build());
     }
 
-    /**
-     * Publishes a domain Message
-     */
     public PublishResult publish(Message message) {
         return publishingService.publishMessage(message);
     }
 
-    /**
-     * Publishes with retry
-     */
     public PublishResult publishWithRetry(Message message, int maxRetries) {
         return publishingService.publishWithRetry(message, maxRetries);
     }
 
-    // ==================== Simplified Consumption API ====================
-
-    /**
-     * Subscribes to topic (simplified API)
-     */
-    public void subscribe(String topicName) {
-        Topic topic = Topic.builder().name(topicName).build();
-        consumptionService.subscribeToTopic(topic);
+    public List<PublishResult> publishBatch(List<Message> messages) {
+        return publishingService.publishBatch(messages);
     }
 
-    /**
-     * Subscribes to multiple topics
-     */
+    public void flush() {
+        publishingService.flush();
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Consumption API
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    public void subscribe(String topicName) {
+        consumptionService.subscribeToTopic(Topic.builder().name(topicName).build());
+    }
+
     public void subscribe(String... topicNames) {
         Set<Topic> topics = Set.of(topicNames).stream()
-                .map(name -> Topic.builder().name(name).build())
-                .collect(java.util.stream.Collectors.toSet());
-
+                .map(n -> Topic.builder().name(n).build())
+                .collect(Collectors.toSet());
         consumptionService.subscribeToTopics(topics);
     }
 
-    /**
-     * Polls for messages with timeout
-     */
     public ConsumeResult poll(Duration timeout) {
         return consumptionService.consumeMessages(timeout);
     }
 
-    /**
-     * Polls for expected number of messages
-     */
     public ConsumeResult pollMessages(int expectedCount, Duration timeout) {
         return consumptionService.consumeExpectedMessages(expectedCount, timeout);
     }
 
-    /**
-     * Consumes all available messages
-     */
     public ConsumeResult consumeAll(int maxMessages, Duration timeout) {
         return consumptionService.consumeAllMessages(maxMessages, timeout);
     }
 
     /**
-     * Polls for the first message that satisfies the given condition — safe variant.
-     * <p>
-     * Returns {@link Optional#empty()} if no matching message is found after all
-     * attempts, instead of {@code null}.  Use when the message may legitimately
-     * be absent and the test handles both cases.
-     *
-     * <pre>{@code
-     * Optional<Message> order = facade.consumeUntil(
-     *         m -> m.getKey().equals("order-99"),
-     *         "message with key='order-99'",
-     *         10,
-     *         Duration.ofSeconds(5));
-     *
-     * assertThat(order).isPresent();
-     * assertThat(order.get().getContent()).contains("CONFIRMED");
-     * }</pre>
-     *
-     * @param condition           Predicate to match against each incoming message
-     * @param conditionDescription Human-readable label shown in logs and failure output
-     * @param maxAttempts         Maximum number of poll rounds
-     * @param pollTimeout         Timeout per poll round
-     * @return {@link Optional} with the first matching message, or empty
+     * Safe variant — returns {@link Optional#empty()} if no match found.
      */
     public Optional<Message> consumeUntil(
-            java.util.function.Predicate<Message> condition,
+            Predicate<Message> condition,
             String conditionDescription,
             int maxAttempts,
             Duration pollTimeout) {
-
         return consumptionService.consumeUntil(condition, conditionDescription, maxAttempts, pollTimeout);
     }
 
     /**
-     * Polls for the first message that satisfies the given condition — strict variant.
-     * <p>
-     * Throws {@link qa.autotest.framework.domain.exception.MessageNotFoundException}
-     * with full diagnostic context (condition description, attempts, timeout, total
-     * time spent) when no matching message is found.  The exception message renders
-     * directly in the Allure failure detail, making it immediately clear <em>what</em>
-     * was expected but never arrived.
-     * <p>
-     * Prefer this variant whenever the message <em>must</em> be present for the
-     * test to be valid.
-     *
-     * <pre>{@code
-     * Message order = facade.consumeUntilOrThrow(
-     *         m -> m.getKey().equals("order-99"),
-     *         "message with key='order-99'",
-     *         10,
-     *         Duration.ofSeconds(5));
-     *
-     * // If not found: MessageNotFoundException — not NullPointerException
-     * assertThat(order.getContent()).contains("CONFIRMED");
-     * }</pre>
-     *
-     * @param condition           Predicate to match against each incoming message
-     * @param conditionDescription Human-readable label shown in logs and failure output
-     * @param maxAttempts         Maximum number of poll rounds
-     * @param pollTimeout         Timeout per poll round
-     * @return The first matching message
-     * @throws qa.autotest.framework.domain.exception.MessageNotFoundException
-     *         if no match is found after all attempts
+     * Strict variant — throws {@link MessageNotFoundException} if no match found.
      */
     public Message consumeUntilOrThrow(
-            java.util.function.Predicate<Message> condition,
+            Predicate<Message> condition,
             String conditionDescription,
             int maxAttempts,
             Duration pollTimeout) {
-
         return consumptionService.consumeUntilOrThrow(condition, conditionDescription, maxAttempts, pollTimeout);
     }
 
-    /**
-     * Seeks to beginning
-     */
     public void seekToBeginning() {
         consumptionService.seekToBeginning();
     }
 
-    /**
-     * Seeks to end
-     */
     public void seekToEnd() {
         consumptionService.seekToEnd();
     }
 
-    /**
-     * Commits current consumer offsets synchronously
-     */
     public void commitSync() {
-        log.debug("Committing offsets synchronously");
         consumptionService.commitOffsets();
     }
 
-    /**
-     * Commits a specific offset for a partition (seeks to offset+1 then commits)
-     */
     public void commitOffset(String topicName, int partition, long offset) {
-        log.debug("Committing offset: topic={}, partition={}, offset={}", topicName, partition, offset);
-        Topic topic = Topic.builder().name(topicName).build();
-        consumptionService.seekToOffset(topic, partition, offset + 1);
+        consumptionService.seekToOffset(Topic.builder().name(topicName).build(), partition, offset + 1);
         consumptionService.commitOffsets();
     }
 
-    // ==================== Simplified Topic Management API ====================
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Topic Management API
+    // ═══════════════════════════════════════════════════════════════════════════
 
-    /**
-     * Creates a topic (simplified API)
-     */
     public boolean createTopic(String topicName) {
-        Topic topic = Topic.builder().name(topicName).build();
-        return topicManagementService.createTopic(topic);
+        return topicManagementService.createTopic(Topic.builder().name(topicName).build());
     }
 
-    /**
-     * Creates a topic with partitions
-     */
     public boolean createTopic(String topicName, int partitions) {
-        Topic topic = Topic.builder()
-                .name(topicName)
-                .partitionCount(partitions)
-                .build();
-        return topicManagementService.createTopic(topic);
+        return topicManagementService.createTopic(
+                Topic.builder().name(topicName).partitionCount(partitions).build());
     }
 
-    /**
-     * Creates a topic with full configuration
-     */
     public boolean createTopic(Topic topic) {
         return topicManagementService.createTopic(topic);
     }
 
-    /**
-     * Creates topic with DLQ
-     */
     public boolean createTopicWithDlq(String topicName) {
-        Topic topic = Topic.builder().name(topicName).build();
-        return topicManagementService.createTopicWithDlq(topic);
+        return topicManagementService.createTopicWithDlq(Topic.builder().name(topicName).build());
     }
 
-    /**
-     * Deletes a topic
-     */
     public boolean deleteTopic(String topicName) {
-        Topic topic = Topic.builder().name(topicName).build();
-        return topicManagementService.deleteTopic(topic);
+        return topicManagementService.deleteTopic(Topic.builder().name(topicName).build());
     }
 
-    /**
-     * Deletes all test topics
-     */
     public int deleteTestTopics() {
         return topicManagementService.deleteTestTopics();
     }
 
-    /**
-     * Checks if topic exists
-     */
     public boolean topicExists(String topicName) {
-        Topic topic = Topic.builder().name(topicName).build();
-        return topicManagementService.topicExists(topic);
+        return topicManagementService.topicExists(Topic.builder().name(topicName).build());
     }
 
-    /**
-     * Waits for topic to be available
-     */
     public boolean waitForTopic(String topicName, int timeoutSeconds) {
-        Topic topic = Topic.builder().name(topicName).build();
-        return topicManagementService.waitForTopic(topic, timeoutSeconds);
+        return topicManagementService.waitForTopic(Topic.builder().name(topicName).build(), timeoutSeconds);
     }
 
-    // ==================== Resource Management ====================
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Lifecycle
+    // ═══════════════════════════════════════════════════════════════════════════
 
     /**
-     * Publishes a batch of messages and returns all results
-     */
-    public List<PublishResult> publishBatch(List<Message> messages) {
-        return publishingService.publishBatch(messages);
-    }
-
-    /**
-     * Flushes the producer - ensures all buffered messages are sent to Kafka
-     */
-    public void flush() {
-        log.debug("Flushing producer to ensure all messages are sent");
-        producerAdapter.flush();
-    }
-
-    /**
-     * Closes current thread resources
+     * Closes resources for the current thread. Call in {@code @AfterEach}.
      */
     @Override
     public void close() {
-        log.debug("Closing KafkaTestFacade for current thread");
         publishingService.close();
         consumptionService.close();
         topicManagementService.close();
     }
 
     /**
-     * CRITICAL: Closes ALL resources from ALL threads
-     * Must be called in @AfterAll to prevent memory leaks
+     * Closes ALL thread-local Kafka clients across all threads.
+     * Call in {@code @AfterAll}. No-op in unit-test mode.
      */
     public void closeAll() {
-        log.info("Closing ALL KafkaTestFacade resources from ALL threads");
-
-        // Close all producers from all threads
-        producerAdapter.closeAll();
-
-        // Close all consumers from all threads
-        consumerAdapter.closeAll();
-
-        // Close admin client
-        adminAdapter.close();
-
+        log.info("Closing ALL KafkaTestFacade resources");
+        closeAllAction.run();
         log.info("All KafkaTestFacade resources closed");
     }
 
-    // ==================== Metrics ====================
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Metrics
+    // ═══════════════════════════════════════════════════════════════════════════
 
     /**
-     * Gets tracking metrics
+     * Returns tracked producer/consumer client counts.
+     * Returns {@code "N/A (unit-test mode)"} when mocks are injected.
      */
     public String getMetrics() {
-        return String.format("Producers tracked: %d, Consumers tracked: %d",
-                producerAdapter.getTrackedProducerCount(),
-                consumerAdapter.getTrackedConsumerCount());
+        return metricsSupplier.get();
     }
 }
