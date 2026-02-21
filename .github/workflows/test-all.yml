@@ -196,6 +196,11 @@ jobs:
           fi
           
           # Добавляем остальные параметры
+          # NOTE: -Dallure.results.directory намеренно НЕ передаётся здесь.
+          # Это свойство задано исключительно внутри execution <id>integration-tests</id>
+          # в pom.xml (systemPropertyVariables). Передача его на уровне Maven-команды
+          # применяла бы его ко ВСЕМ Surefire execution, в том числе к unit-tests,
+          # из-за чего юнит-тесты попадали в allure-results и учитывались в отчёте.
           MVN_CMD="$MVN_CMD \
             -Dkafka.bootstrap.servers=$KAFKA_BOOTSTRAP_SERVERS \
             -Dkafka.ssl.truststore.location=${{ env.KAFKA_SSL_TRUSTSTORE_LOCATION }} \
@@ -207,8 +212,7 @@ jobs:
             -Dkafka.ssl.truststore.type=JKS \
             -Daiven.api.token=$AIVEN_API_TOKEN \
             -Daiven.project.name=$AIVEN_PROJECT_NAME \
-            -Daiven.service.name=$AIVEN_SERVICE_NAME \
-            -Dallure.results.directory=target/allure-results"
+            -Daiven.service.name=$AIVEN_SERVICE_NAME"
           
           echo "Executing: $MVN_CMD"
           echo ""
@@ -350,5 +354,5 @@ jobs:
         if: always()
         uses: EnricoMi/publish-unit-test-result-action@v2
         with:
-          files: target/surefire-reports/*.xml
+          files: target/surefire-reports/integration/*.xml
           check_name: Test Results - All Kafka Tests

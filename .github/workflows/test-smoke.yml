@@ -142,6 +142,8 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo ""
           
+          # NOTE: -Dallure.results.directory намеренно НЕ передаётся здесь.
+          # Задаётся только внутри execution <id>integration-tests</id> в pom.xml.
           # Если profile=sequential, не используем -P опцию
           if [ "${{ env.TEST_PROFILE }}" = "sequential" ]; then
             mvn clean test \
@@ -153,8 +155,7 @@ jobs:
               -Dkafka.ssl.keystore.password=${{ secrets.KAFKA_SSL_KEYSTORE_PASSWORD }} \
               -Daiven.api.token=$AIVEN_API_TOKEN \
               -Daiven.project.name=$AIVEN_PROJECT_NAME \
-              -Daiven.service.name=$AIVEN_SERVICE_NAME \
-              -Dallure.results.directory=target/allure-results
+              -Daiven.service.name=$AIVEN_SERVICE_NAME
           else
             mvn clean test \
               -P${{ env.TEST_PROFILE }} \
@@ -168,8 +169,7 @@ jobs:
               -Dkafka.ssl.keystore.password=${{ secrets.KAFKA_SSL_KEYSTORE_PASSWORD }} \
               -Daiven.api.token=$AIVEN_API_TOKEN \
               -Daiven.project.name=$AIVEN_PROJECT_NAME \
-              -Daiven.service.name=$AIVEN_SERVICE_NAME \
-              -Dallure.results.directory=target/allure-results
+              -Daiven.service.name=$AIVEN_SERVICE_NAME
           fi
 
       # ─────────────────────────────────────────────
@@ -310,5 +310,5 @@ jobs:
         if: always()
         uses: EnricoMi/publish-unit-test-result-action@v2
         with:
-          files: target/surefire-reports/*.xml
+          files: target/surefire-reports/integration/*.xml
           check_name: Test Results - Smoke Tests
