@@ -39,10 +39,24 @@
         <maven-compiler-plugin.version>3.11.0</maven-compiler-plugin.version>
         <allure-maven.version>2.12.0</allure-maven.version>
         <aspectj.version>1.9.21</aspectj.version>
+        <mockito.version>5.11.0</mockito.version>
 
         <!-- Test Execution Parameters -->
         <thread.count>1</thread.count>
         <test.groups></test.groups>
+
+        <!--
+            Пакеты юнит-тестов — классы из этих пакетов запускаются отдельным
+            execution без Allure и НЕ попадают в allure-results.
+            Паттерн соответствует Surefire glob-синтаксису.
+        -->
+        <unit.test.pattern>qa/autotest/framework/**/*Test.java</unit.test.pattern>
+
+        <!--
+            Пакеты интеграционных тестов — всё остальное.
+            Настраивается через excludes в integration-execution.
+        -->
+        <integration.test.pattern>tests/**/*Test.java</integration.test.pattern>
 
     </properties>
 
@@ -84,7 +98,7 @@
             <artifactId>awaitility</artifactId>
             <version>${awaitility.version}</version>
         </dependency>
-        
+
         <!-- Gson for JSON serialization -->
         <dependency>
             <groupId>com.google.code.gson</groupId>
@@ -149,6 +163,19 @@
             <artifactId>owner</artifactId>
             <version>${owner.version}</version>
         </dependency>
+
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>${mockito.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-junit-jupiter</artifactId>
+            <version>${mockito.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -172,33 +199,119 @@
                 </configuration>
             </plugin>
 
-            <!-- Maven Surefire Plugin for running tests -->
+            <!--
+                Maven Surefire Plugin — два отдельных execution:
+
+                1) unit-tests   — запускает qa/autotest/framework/**/*Test.java
+                                  БЕЗ aspectjweaver и БЕЗ allure.results.directory,
+                                  поэтому Allure listener не активен и файлы
+                                  в allure-results не пишутся.
+
+                2) integration-tests — запускает tests/**/*Test.java
+                                  С aspectjweaver + allure.results.directory,
+                                  результаты идут в отчёт Allure как обычно.
+
+                Запуск только юнит-тестов:
+                    mvn test -Dskip.integration.tests=true
+
+                Запуск только интеграционных тестов:
+                    mvn test -Dskip.unit.tests=true
+
+                Запуск всех тестов (по умолчанию):
+                    mvn test
+            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>${maven-surefire-plugin.version}</version>
+
+                <!-- Отключаем default execution — управляем вручную через executions -->
                 <configuration>
-                    <!-- Surefire-level parallel отключён — параллелизм управляется только через JUnit 5 -->
-                    <parallel>none</parallel>
-                    <threadCount>1</threadCount>
-                    <perCoreThreadCount>false</perCoreThreadCount>
-                    <groups>${test.groups}</groups>
-                    <reportsDirectory>${project.build.directory}/surefire-reports</reportsDirectory>
-                    <!-- Generate XML reports for CI systems -->
-                    <useFile>true</useFile>
-                    <!-- Flaky test retry -->
-                    <rerunFailingTestsCount>2</rerunFailingTestsCount>
-                    <systemPropertyVariables>
-                        <allure.results.directory>${project.build.directory}/allure-results</allure.results.directory>
-                        <!-- Max pool size to prevent ForkJoinPool from creating extra threads -->
-                        <junit.jupiter.execution.parallel.config.fixed.max-pool-size>${thread.count}</junit.jupiter.execution.parallel.config.fixed.max-pool-size>
-                        <ssl.keystore.type>PKCS12</ssl.keystore.type>
-                        <ssl.truststore.type>JKS</ssl.truststore.type>
-                    </systemPropertyVariables>
-                    <argLine>
-                        -javaagent:"${settings.localRepository}/org/aspectj/aspectjweaver/${aspectj.version}/aspectjweaver-${aspectj.version}.jar"
-                    </argLine>
+                    <skip>true</skip>
                 </configuration>
+
+                <executions>
+
+                    <!-- ══════════════════════════════════════════════════════
+                         EXECUTION 1: Юнит-тесты
+                         Пакет: qa.autotest.framework.**
+                         Allure: ВЫКЛЮЧЕН (нет aspectjweaver, нет allure.results.directory)
+                         Отчёты: target/surefire-reports/unit
+                         ══════════════════════════════════════════════════════ -->
+                    <execution>
+                        <id>unit-tests</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>test</goal>
+                        </goals>
+                        <configuration>
+                            <skip>${skip.unit.tests}</skip>
+                            <includes>
+                                <include>${unit.test.pattern}</include>
+                            </includes>
+                            <reportsDirectory>${project.build.directory}/surefire-reports/unit</reportsDirectory>
+                            <parallel>none</parallel>
+                            <threadCount>1</threadCount>
+                            <perCoreThreadCount>false</perCoreThreadCount>
+                            <rerunFailingTestsCount>2</rerunFailingTestsCount>
+                            <useFile>true</useFile>
+                            <!--
+                                Намеренно НЕ задаём allure.results.directory —
+                                Allure listener не найдёт директорию и не запишет результаты.
+                                Также НЕ подключаем aspectjweaver — он нужен только для
+                                перехвата аннотаций Allure в интеграционных тестах.
+                            -->
+                            <systemPropertyVariables>
+                                <ssl.keystore.type>PKCS12</ssl.keystore.type>
+                                <ssl.truststore.type>JKS</ssl.truststore.type>
+                                <junit.jupiter.execution.parallel.config.fixed.max-pool-size>${thread.count}</junit.jupiter.execution.parallel.config.fixed.max-pool-size>
+                            </systemPropertyVariables>
+                        </configuration>
+                    </execution>
+
+                    <!-- ══════════════════════════════════════════════════════
+                         EXECUTION 2: Интеграционные тесты
+                         Пакет: tests/**
+                         Allure: ВКЛЮЧЁН (aspectjweaver + allure.results.directory)
+                         Отчёты: target/surefire-reports/integration
+                                 target/allure-results
+                         ══════════════════════════════════════════════════════ -->
+                    <execution>
+                        <id>integration-tests</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>test</goal>
+                        </goals>
+                        <configuration>
+                            <skip>${skip.integration.tests}</skip>
+                            <includes>
+                                <include>${integration.test.pattern}</include>
+                            </includes>
+                            <!-- Явно исключаем юнит-тесты на случай пересечения паттернов -->
+                            <excludes>
+                                <exclude>${unit.test.pattern}</exclude>
+                            </excludes>
+                            <groups>${test.groups}</groups>
+                            <reportsDirectory>${project.build.directory}/surefire-reports/integration</reportsDirectory>
+                            <parallel>none</parallel>
+                            <threadCount>1</threadCount>
+                            <perCoreThreadCount>false</perCoreThreadCount>
+                            <rerunFailingTestsCount>2</rerunFailingTestsCount>
+                            <useFile>true</useFile>
+                            <systemPropertyVariables>
+                                <allure.results.directory>${project.build.directory}/allure-results</allure.results.directory>
+                                <ssl.keystore.type>PKCS12</ssl.keystore.type>
+                                <ssl.truststore.type>JKS</ssl.truststore.type>
+                                <junit.jupiter.execution.parallel.config.fixed.max-pool-size>${thread.count}</junit.jupiter.execution.parallel.config.fixed.max-pool-size>
+                            </systemPropertyVariables>
+                            <argLine>
+                                -javaagent:"${settings.localRepository}/org/aspectj/aspectjweaver/${aspectj.version}/aspectjweaver-${aspectj.version}.jar"
+                            </argLine>
+                        </configuration>
+                    </execution>
+
+                </executions>
+
                 <dependencies>
                     <dependency>
                         <groupId>org.aspectj</groupId>
@@ -231,6 +344,8 @@
             </activation>
             <properties>
                 <env>local</env>
+                <skip.unit.tests>false</skip.unit.tests>
+                <skip.integration.tests>false</skip.integration.tests>
             </properties>
         </profile>
 
@@ -238,6 +353,8 @@
             <id>ci</id>
             <properties>
                 <env>ci</env>
+                <skip.unit.tests>false</skip.unit.tests>
+                <skip.integration.tests>false</skip.integration.tests>
             </properties>
         </profile>
 
@@ -327,16 +444,23 @@
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-surefire-plugin</artifactId>
-                        <configuration>
-                            <systemPropertyVariables>
-                                <allure.results.directory>${project.build.directory}/allure-results</allure.results.directory>
-                                <!-- Enable parallel execution -->
-                                <junit.jupiter.execution.parallel.enabled>true</junit.jupiter.execution.parallel.enabled>
-                                <junit.jupiter.execution.parallel.mode.default>concurrent</junit.jupiter.execution.parallel.mode.default>
-                                <junit.jupiter.execution.parallel.mode.classes.default>concurrent</junit.jupiter.execution.parallel.mode.classes.default>
-                                <junit.jupiter.execution.parallel.config.fixed.max-pool-size>${thread.count}</junit.jupiter.execution.parallel.config.fixed.max-pool-size>
-                            </systemPropertyVariables>
-                        </configuration>
+                        <executions>
+                            <!-- Переопределяем только integration-tests execution для параллельного запуска -->
+                            <execution>
+                                <id>integration-tests</id>
+                                <configuration>
+                                    <systemPropertyVariables>
+                                        <allure.results.directory>${project.build.directory}/allure-results</allure.results.directory>
+                                        <junit.jupiter.execution.parallel.enabled>true</junit.jupiter.execution.parallel.enabled>
+                                        <junit.jupiter.execution.parallel.mode.default>concurrent</junit.jupiter.execution.parallel.mode.default>
+                                        <junit.jupiter.execution.parallel.mode.classes.default>concurrent</junit.jupiter.execution.parallel.mode.classes.default>
+                                        <junit.jupiter.execution.parallel.config.fixed.max-pool-size>${thread.count}</junit.jupiter.execution.parallel.config.fixed.max-pool-size>
+                                        <ssl.keystore.type>PKCS12</ssl.keystore.type>
+                                        <ssl.truststore.type>JKS</ssl.truststore.type>
+                                    </systemPropertyVariables>
+                                </configuration>
+                            </execution>
+                        </executions>
                     </plugin>
                 </plugins>
             </build>
