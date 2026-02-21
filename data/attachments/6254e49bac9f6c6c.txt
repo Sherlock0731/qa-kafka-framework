@@ -1,0 +1,9 @@
+=== Test Execution Info ===
+
+Test Class:   tests.performance.PerformanceTests
+Test Method:  testConsumerLagUnderLoad
+Display Name: TC-036: Consumer lag under high load
+Status:       PASSED
+Time:         2026-02-21 05:05:51
+Thread:       main
+Tag: performance

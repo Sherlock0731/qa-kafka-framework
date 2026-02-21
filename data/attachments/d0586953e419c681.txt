@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.consumer.ConsumerTests
+Test Method:  testSeekToBeginningEnd
+Display Name: TC-011D: Seek to beginning and end
+Status:       PASSED
+Time:         2026-02-21 05:07:19
+Thread:       main
+Tag: consumer
+Tag: critical

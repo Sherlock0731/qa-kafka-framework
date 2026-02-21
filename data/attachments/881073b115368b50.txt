@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.partitioning.PartitioningTests
+Test Method:  testPartitionCountChange
+Display Name: TC-022A: Behavior when partition count changes
+Status:       PASSED
+Time:         2026-02-21 05:12:28
+Thread:       main
+Tag: partitioning
+Tag: critical
