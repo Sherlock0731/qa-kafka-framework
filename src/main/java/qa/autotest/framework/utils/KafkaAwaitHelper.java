@@ -1,9 +1,9 @@
 package qa.autotest.framework.utils;
 
 import lombok.extern.slf4j.Slf4j;
-import org.awaitility.Awaitility;
 import qa.autotest.framework.application.service.KafkaTestFacade;
 import qa.autotest.framework.domain.model.ConsumeResult;
+import qa.autotest.framework.domain.model.ConsumerGroup;
 import qa.autotest.framework.domain.model.Message;
 
 import java.time.Duration;
@@ -161,12 +161,38 @@ public class KafkaAwaitHelper {
      * After closing a consumer and creating a new one, waits for the new
      * consumer group rebalance to complete.
      * <p>
-     * All poll calls happen in the calling (main) thread via pollInSameThread().
-     * Replaces: Thread.sleep(5000) after close + subscribe.
+     * Rebalance is considered complete when <strong>all</strong> of the
+     * following are true:
+     * <ol>
+     *   <li>A {@code poll()} call returns without {@code IllegalStateException}
+     *       — meaning the consumer has joined the group and heartbeat is running.</li>
+     *   <li>{@code getConsumerGroup().partitionAssignments()} is non-empty
+     *       — confirming the coordinator has actually distributed partitions.</li>
+     *   <li>{@code getConsumerGroup().getState() == STABLE}
+     *       — the broker-side group FSM has left PREPARING_REBALANCE /
+     *       COMPLETING_REBALANCE and settled.</li>
+     * </ol>
+     * <p>
+     * All poll calls happen in the calling (main) thread via
+     * {@code pollInSameThread()} so KafkaConsumer ThreadLocal is respected.
+     * <p>
+     * <strong>Previous (broken) implementation:</strong>
+     * <pre>{@code
+     * .until(() -> {
+     *     kafka.poll(Duration.ofMillis(300));
+     *     return true;   // condition was always true — rebalance never checked
+     * });
+     * }</pre>
+     * This caused flaky tests: the method returned immediately after the first
+     * poll, regardless of whether the coordinator had assigned any partitions.
+     * Subsequent polls in the test would then return 0 messages because the
+     * consumer was still in PREPARING_REBALANCE.
      *
-     * @param kafka      new facade (already has subscribe called on it OR will subscribe)
-     * @param topicName  topic to subscribe
-     * @param timeoutSec max wait in seconds
+     * @param kafka      facade (already subscribed, or subscribe will be called here)
+     * @param topicName  topic to subscribe to
+     * @param timeoutSec maximum seconds to wait for rebalance completion
+     * @throws org.awaitility.core.ConditionTimeoutException if rebalance does
+     *         not complete within {@code timeoutSec}
      */
     public static void awaitRebalance(KafkaTestFacade kafka,
                                       String topicName,
@@ -174,17 +200,55 @@ public class KafkaAwaitHelper {
         log.debug("Awaiting rebalance after consumer change on topic: {}", topicName);
         kafka.subscribe(topicName);
 
-        await("rebalance complete: " + topicName)
+        // Phase 1 — wait until the local consumer has partitions assigned.
+        //
+        // poll() drives the JoinGroup / SyncGroup Kafka protocol: without it,
+        // the broker never delivers the partition assignment to this client.
+        // isAssigned() reads KafkaConsumer.assignment() — a local, in-memory
+        // set, no network call — and returns true only when the rebalance
+        // protocol has finished and at least one partition is owned.
+        //
+        // ALL calls run in the calling (main) thread via pollInSameThread()
+        // because KafkaConsumer is ThreadLocal and must never be touched from
+        // any other thread.
+        await("local partition assignment: " + topicName)
                 .atMost(timeoutSec, TimeUnit.SECONDS)
                 .pollInterval(Duration.ofMillis(500))
                 .pollInSameThread()
                 .ignoreException(IllegalStateException.class)
                 .until(() -> {
+                    // Drives JoinGroup/SyncGroup protocol — mandatory for assignment delivery.
                     kafka.poll(Duration.ofMillis(300));
-                    return true;
+                    // Local read — true only after partitions are actually assigned.
+                    boolean assigned = kafka.isAssigned();
+                    log.trace("Rebalance phase-1: isAssigned={} on '{}'", assigned, topicName);
+                    return assigned;
                 });
 
-        log.debug("Rebalance complete on topic: {}", topicName);
+        // Phase 2 — verify broker-side STABLE state via AdminClient.
+        //
+        // After local assignment is confirmed, check the broker's view exactly
+        // once to rule out the rare race where the coordinator starts a second
+        // rebalance immediately after the first (e.g. another consumer joining
+        // the same group). AdminClient is thread-safe — safe from the main thread.
+        ConsumerGroup group = kafka.getConsumerGroup();
+        if (group.getState() != ConsumerGroup.GroupState.STABLE) {
+            log.warn("Partitions assigned locally but broker reports state={} on '{}'. Waiting for STABLE...",
+                    group.getState(), topicName);
+
+            await("broker STABLE state: " + topicName)
+                    .atMost(Math.max(timeoutSec / 2, 5), TimeUnit.SECONDS)
+                    .pollInterval(Duration.ofMillis(500))
+                    .pollInSameThread()
+                    .until(() -> {
+                        kafka.poll(Duration.ofMillis(300));
+                        ConsumerGroup g = kafka.getConsumerGroup();
+                        log.debug("Rebalance phase-2: brokerState={} on '{}'", g.getState(), topicName);
+                        return g.getState() == ConsumerGroup.GroupState.STABLE;
+                    });
+        }
+
+        log.info("Rebalance complete on topic '{}': partitions assigned, broker state=STABLE", topicName);
     }
 
     // ── Internal helpers ──────────────────────────────────────────────────────

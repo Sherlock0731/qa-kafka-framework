@@ -1,4 +1,7 @@
-package qa.autotest.framework.config;
+package qa.autotest.framework.exceptions;
+
+import qa.autotest.framework.config.ConfigFactory;
+import qa.autotest.framework.config.KafkaConfig;
 
 import java.util.Collections;
 import java.util.List;

@@ -2,6 +2,7 @@ package qa.autotest.framework.infrastructure.kafka.adapter;
 
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.ConsumerGroupDescription;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.common.TopicPartition;
@@ -10,6 +11,7 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 import qa.autotest.framework.config.KafkaConfig;
 import qa.autotest.framework.domain.model.ConsumeResult;
 import qa.autotest.framework.domain.model.ConsumerGroup;
+import qa.autotest.framework.domain.model.KafkaErrorCategory;
 import qa.autotest.framework.domain.model.Message;
 import qa.autotest.framework.domain.model.Topic;
 import qa.autotest.framework.domain.port.MessageConsumer;
@@ -213,6 +215,26 @@ public class KafkaConsumerAdapter implements MessageConsumer {
             getConsumer().seekToEnd(assignment);
             log.debug("Seeked to end of {} partitions", assignment.size());
         }
+    }
+
+    /**
+     * Returns {@code true} if this consumer currently has at least one
+     * partition assigned.
+     * <p>
+     * Reads {@code KafkaConsumer.assignment()} — a local, in-memory set,
+     * no network round-trip.  Safe to call on the main test thread inside
+     * an Awaitility {@code pollInSameThread()} loop triggered immediately
+     * after {@code subscribe()}.  The set becomes non-empty once the
+     * group coordinator completes the rebalance and the next {@code poll()}
+     * drives the JoinGroup/SyncGroup protocol to completion.
+     *
+     * @return {@code true} when at least one {@link TopicPartition} is assigned
+     */
+    @Override
+    public boolean isAssigned() {
+        boolean assigned = !getConsumer().assignment().isEmpty();
+        log.trace("isAssigned={}, partitions={}", assigned, getConsumer().assignment());
+        return assigned;
     }
 
     @Override

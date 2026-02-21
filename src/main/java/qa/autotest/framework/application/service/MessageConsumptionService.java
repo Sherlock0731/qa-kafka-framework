@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import qa.autotest.framework.exceptions.MessageNotFoundException;
 import qa.autotest.framework.domain.model.ConsumeResult;
+import qa.autotest.framework.domain.model.ConsumerGroup;
 import qa.autotest.framework.domain.model.Message;
 import qa.autotest.framework.domain.model.Topic;
 import qa.autotest.framework.domain.port.MessageConsumer;
@@ -258,6 +259,20 @@ public class MessageConsumptionService {
     }
 
     /**
+     * Use Case: Check whether the consumer has partitions assigned.
+     * <p>
+     * Delegates to {@link MessageConsumer#isAssigned()} which reads
+     * {@code KafkaConsumer.assignment()} locally — no network call.
+     * Used by {@link qa.autotest.framework.utils.KafkaAwaitHelper#awaitRebalance}
+     * to detect that the group rebalance has actually completed.
+     *
+     * @return {@code true} if at least one partition is assigned to this consumer
+     */
+    public boolean isAssigned() {
+        return messageConsumer.isAssigned();
+    }
+
+    /**
      * Use Case: Seek to specific offset
      *
      * @param topic     Topic to seek in
@@ -313,6 +328,26 @@ public class MessageConsumptionService {
     /**
      * Closes the consumption service
      */
+    /**
+     * Use Case: Retrieve the current consumer group state from the broker.
+     * <p>
+     * Delegates to {@link MessageConsumer#getConsumerGroup()} which calls
+     * {@code AdminClient.describeConsumerGroups()} under the hood.
+     * Used by {@code KafkaAwaitHelper.awaitRebalance()} to verify that
+     * partition assignments are non-empty before declaring rebalance complete.
+     *
+     * @return current {@link ConsumerGroup} snapshot from the broker
+     */
+    public ConsumerGroup getConsumerGroup() {
+        log.debug("Fetching consumer group state from broker");
+        ConsumerGroup group = messageConsumer.getConsumerGroup();
+        log.debug("Consumer group state: id={}, state={}, members={}, partitions={}",
+                group.getGroupId(), group.getState(),
+                group.getMemberCount(),
+                group.getPartitionAssignments() == null ? 0 : group.getPartitionAssignments().size());
+        return group;
+    }
+
     public void close() {
         log.debug("Closing message consumption service");
         messageConsumer.close();

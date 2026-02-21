@@ -3,7 +3,6 @@ package qa.autotest.framework.domain.model;
 import lombok.Builder;
 import lombok.Value;
 
-import java.time.Instant;
 import java.util.Objects;
 
 /**

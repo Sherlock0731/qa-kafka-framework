@@ -2,13 +2,10 @@ package qa.autotest.framework.domain.port;
 
 import qa.autotest.framework.domain.model.ConsumeResult;
 import qa.autotest.framework.domain.model.ConsumerGroup;
-import qa.autotest.framework.domain.model.Message;
 import qa.autotest.framework.domain.model.Topic;
 
 import java.time.Duration;
-import java.util.List;
 import java.util.Set;
-import java.util.Map;
 
 /**
  * Port Interface: MessageConsumer (Outbound Port)
@@ -76,6 +73,22 @@ public interface MessageConsumer {
      * Seeks to end of all partitions
      */
     void seekToEnd();
+
+    /**
+     * Returns {@code true} if this consumer currently has at least one
+     * partition assigned to it.
+     * <p>
+     * Uses {@code KafkaConsumer.assignment()} which reads the local in-memory
+     * assignment set — <strong>no network call</strong>, safe to call from the
+     * main test thread inside an Awaitility {@code pollInSameThread()} loop.
+     * <p>
+     * A non-empty assignment is the reliable signal that the group rebalance
+     * has completed and the consumer is ready to poll.
+     *
+     * @return {@code true} if at least one {@link org.apache.kafka.common.TopicPartition}
+     *         is assigned to this consumer instance
+     */
+    boolean isAssigned();
 
     /**
      * Commits current offsets synchronously

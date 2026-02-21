@@ -3,6 +3,7 @@ package qa.autotest.framework.config;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import qa.autotest.framework.exceptions.ConfigurationException;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;

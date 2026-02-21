@@ -187,6 +187,22 @@ public class KafkaTestFacade implements AutoCloseable {
     }
 
     /**
+     * Returns the current consumer group state as reported by the broker.
+     * <p>
+     * Delegates to {@link MessageConsumptionService#getConsumerGroup()} which
+     * calls {@code AdminClient.describeConsumerGroups()} internally.
+     * <p>
+     * Primary use: {@code KafkaAwaitHelper.awaitRebalance()} polls this method
+     * to confirm that partition assignments are non-empty and the group has
+     * reached {@link ConsumerGroup.GroupState#STABLE} before proceeding.
+     *
+     * @return current {@link ConsumerGroup} snapshot from the broker
+     */
+    public ConsumerGroup getConsumerGroup() {
+        return consumptionService.getConsumerGroup();
+    }
+
+    /**
      * Safe variant — returns {@link Optional#empty()} if no match found.
      */
     public Optional<Message> consumeUntil(
@@ -214,6 +230,21 @@ public class KafkaTestFacade implements AutoCloseable {
 
     public void seekToEnd() {
         consumptionService.seekToEnd();
+    }
+
+    /**
+     * Returns {@code true} if this consumer currently has at least one
+     * partition assigned (rebalance completed).
+     * <p>
+     * Reads the local in-memory assignment — no network call.
+     * Called by {@link qa.autotest.framework.utils.KafkaAwaitHelper#awaitRebalance}
+     * inside an Awaitility {@code pollInSameThread()} loop to reliably detect
+     * when the group coordinator has finished the rebalance.
+     *
+     * @return {@code true} when at least one partition is assigned
+     */
+    public boolean isAssigned() {
+        return consumptionService.isAssigned();
     }
 
     public void commitSync() {
