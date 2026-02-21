@@ -45,18 +45,20 @@
         <thread.count>1</thread.count>
         <test.groups></test.groups>
 
-        <!--
-            Пакеты юнит-тестов — классы из этих пакетов запускаются отдельным
-            execution без Allure и НЕ попадают в allure-results.
-            Паттерн соответствует Surefire glob-синтаксису.
-        -->
-        <unit.test.pattern>qa/autotest/framework/**/*Test.java</unit.test.pattern>
+        <!-- По умолчанию оба execution включены -->
+        <skip.unit.tests>false</skip.unit.tests>
+        <skip.integration.tests>false</skip.integration.tests>
 
         <!--
-            Пакеты интеграционных тестов — всё остальное.
-            Настраивается через excludes в integration-execution.
+            Паттерны для юнит-тестов (пакет qa.autotest.framework.**).
+            Surefire сопоставляет паттерны с именами классов в target/test-classes.
         -->
-        <integration.test.pattern>tests/**/*Test.java</integration.test.pattern>
+        <unit.test.pattern>qa/autotest/framework/**/*Test.class</unit.test.pattern>
+
+        <!--
+            Паттерны для интеграционных тестов (пакет tests.**).
+        -->
+        <integration.test.pattern>tests/**/*Tests.class</integration.test.pattern>
 
     </properties>
 
@@ -344,8 +346,6 @@
             </activation>
             <properties>
                 <env>local</env>
-                <skip.unit.tests>false</skip.unit.tests>
-                <skip.integration.tests>false</skip.integration.tests>
             </properties>
         </profile>
 
@@ -353,8 +353,6 @@
             <id>ci</id>
             <properties>
                 <env>ci</env>
-                <skip.unit.tests>false</skip.unit.tests>
-                <skip.integration.tests>false</skip.integration.tests>
             </properties>
         </profile>
 
