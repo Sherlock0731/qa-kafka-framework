@@ -1,0 +1,11 @@
+=== Test Execution Info ===
+
+Test Class:   tests.consumer.ConsumerTests
+Test Method:  testReadFromBeginning
+Display Name: TC-009: Чтение сообщений с начала топика (earliest)
+Status:       PASSED
+Time:         2026-02-21 13:13:27
+Thread:       main
+Tag: smoke
+Tag: consumer
+Tag: critical
