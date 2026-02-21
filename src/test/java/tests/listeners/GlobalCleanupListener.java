@@ -32,6 +32,8 @@ public class GlobalCleanupListener implements TestExecutionListener {
         log.info("Total tests discovered: {}", testPlan.countTestIdentifiers(t -> t.isTest()));
         log.info("Environment: {}", CONFIG.environment());
         log.info("Kafka SSL enabled");
+        log.info("Global Aiven API cleanup: {}",
+                CONFIG.cleanupViaAivenApiEnabled() ? "ENABLED" : "DISABLED (test.cleanup.aiven.api.enabled=false)");
 
         // Log Aiven API configuration status
         String configStatus = CLEANUP_MANAGER.getConfigurationStatus();

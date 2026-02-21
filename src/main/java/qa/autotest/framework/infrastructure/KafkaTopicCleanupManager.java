@@ -24,14 +24,27 @@ public class KafkaTopicCleanupManager {
     }
 
     /**
-     * Cleanup all test topics created during test execution
-     * This method should be called after all tests are completed
+     * Cleanup all test topics created during test execution.
+     * <p>
+     * Guarded by two independent configuration flags:
+     * <ol>
+     *   <li>{@code test.cleanup.topics} — master switch for all cleanup</li>
+     *   <li>{@code test.cleanup.aiven.api.enabled} — specifically controls
+     *       whether the global Aiven REST API sweep runs at suite end</li>
+     * </ol>
+     * Both must be {@code true} for the Aiven API call to proceed.
+     * This method should be called after all tests are completed.
      *
      * @return Number of successfully deleted topics
      */
     public int cleanupAllTestTopics() {
         if (!config.cleanupTopics()) {
-            log.info("Topic cleanup is disabled in configuration (test.cleanup.topics=false)");
+            log.info("Topic cleanup is disabled (test.cleanup.topics=false). Skipping global Aiven API cleanup.");
+            return 0;
+        }
+
+        if (!config.cleanupViaAivenApiEnabled()) {
+            log.info("Global Aiven API cleanup is disabled (test.cleanup.aiven.api.enabled=false). Skipping.");
             return 0;
         }
 
@@ -115,6 +128,7 @@ public class KafkaTopicCleanupManager {
         status.append("- Service Name: ").append(config.aivenServiceName() != null && !config.aivenServiceName().isEmpty()
                 ? config.aivenServiceName() : "NOT CONFIGURED").append("\n");
         status.append("- Cleanup Enabled: ").append(config.cleanupTopics()).append("\n");
+        status.append("- Aiven API Cleanup Enabled: ").append(config.cleanupViaAivenApiEnabled()).append("\n");
 
         return status.toString();
     }

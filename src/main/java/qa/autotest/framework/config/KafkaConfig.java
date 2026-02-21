@@ -346,6 +346,29 @@ public interface KafkaConfig extends Config {
     @DefaultValue("true")
     Boolean cleanupTopics();
 
+    /**
+     * Enable global test topic cleanup via Aiven REST API after the entire
+     * test suite finishes (triggered by {@code GlobalCleanupListener}).
+     * <p>
+     * When {@code true} (default), {@code GlobalCleanupListener} will call
+     * the Aiven API at the end of the test plan to delete all topics whose
+     * names start with {@link #testTopicPrefix()}.  This is the "deep clean"
+     * that removes topics left behind by tests that failed before
+     * {@code @AfterEach} could run.
+     * <p>
+     * Set to {@code false} to disable the global Aiven API sweep entirely
+     * (e.g. when running against a local Kafka cluster where Aiven API is
+     * not available, or when you intentionally want to inspect topics after
+     * the run).
+     * <p>
+     * This flag is independent of {@link #cleanupTopics()}: the per-test
+     * {@code @AfterEach} cleanup obeys {@code test.cleanup.topics}, while
+     * the end-of-suite Aiven API sweep obeys this flag.
+     */
+    @Key("test.cleanup.aiven.api.enabled")
+    @DefaultValue("true")
+    Boolean cleanupViaAivenApiEnabled();
+
     // ==================== Aiven API Configuration ====================
 
     /**
