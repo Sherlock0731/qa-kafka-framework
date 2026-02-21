@@ -5,7 +5,7 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import qa.autotest.framework.config.KafkaConfig;
-import qa.autotest.framework.kafka.KafkaPropertiesBuilder;
+import qa.autotest.framework.infrastructure.KafkaPropertiesBuilder;
 
 import java.util.Properties;
 

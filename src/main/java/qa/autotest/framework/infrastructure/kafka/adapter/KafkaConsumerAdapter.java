@@ -2,7 +2,6 @@ package qa.autotest.framework.infrastructure.kafka.adapter;
 
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.admin.AdminClient;
-import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.ConsumerGroupDescription;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.common.TopicPartition;
@@ -11,11 +10,10 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 import qa.autotest.framework.config.KafkaConfig;
 import qa.autotest.framework.domain.model.ConsumeResult;
 import qa.autotest.framework.domain.model.ConsumerGroup;
-import qa.autotest.framework.domain.model.KafkaErrorCategory;
 import qa.autotest.framework.domain.model.Message;
 import qa.autotest.framework.domain.model.Topic;
 import qa.autotest.framework.domain.port.MessageConsumer;
-import qa.autotest.framework.kafka.KafkaPropertiesBuilder;
+import qa.autotest.framework.infrastructure.KafkaPropertiesBuilder;
 
 import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
@@ -221,6 +219,39 @@ public class KafkaConsumerAdapter implements MessageConsumer {
     public void commitSync() {
         getConsumer().commitSync();
         log.debug("Committed offsets synchronously");
+    }
+
+    /**
+     * Commits a specific offset for a single partition using
+     * {@code KafkaConsumer.commitSync(Map)} — the correct Kafka API for
+     * explicit offset commits without a preceding {@code poll()}.
+     * <p>
+     * The committed position is {@code offset + 1}: Kafka interprets the
+     * committed offset as "the next record to fetch", so we must always
+     * store lastConsumedOffset + 1.
+     *
+     * <h3>Why not seek() + commitSync()?</h3>
+     * {@code seek()} repositions the in-memory fetch position only.
+     * {@code commitSync()} (no-arg) then persists <em>that</em> fetch
+     * position, which can silently overwrite legitimate progress on other
+     * partitions assigned to the same consumer.  Using the {@code Map}
+     * overload targets exactly one {@code TopicPartition} and leaves all
+     * other committed offsets untouched.
+     *
+     * @param topic     topic the offset belongs to
+     * @param partition partition number (0-based)
+     * @param offset    offset of the last consumed record;
+     *                  committed position will be {@code offset + 1}
+     */
+    @Override
+    public void commitSync(Topic topic, int partition, long offset) {
+        TopicPartition tp = new TopicPartition(topic.getName(), partition);
+        // committed offset = lastConsumed + 1 (Kafka convention)
+        OffsetAndMetadata meta = new OffsetAndMetadata(offset + 1);
+        Map<TopicPartition, OffsetAndMetadata> offsets = Map.of(tp, meta);
+        getConsumer().commitSync(offsets);
+        log.debug("Committed explicit offset: topic={}, partition={}, committedPosition={}",
+                topic.getName(), partition, offset + 1);
     }
 
     @Override

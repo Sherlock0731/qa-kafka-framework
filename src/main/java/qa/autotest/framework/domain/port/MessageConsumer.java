@@ -8,6 +8,7 @@ import qa.autotest.framework.domain.model.Topic;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
+import java.util.Map;
 
 /**
  * Port Interface: MessageConsumer (Outbound Port)
@@ -80,6 +81,21 @@ public interface MessageConsumer {
      * Commits current offsets synchronously
      */
     void commitSync();
+
+    /**
+     * Commits a specific offset for a single partition synchronously.
+     * <p>
+     * Uses {@code consumer.commitSync(Map)} — the only Kafka-correct way to
+     * commit an explicit offset without calling {@code poll()} first.
+     * The committed offset must be {@code lastConsumedOffset + 1} so that
+     * the next fetch starts at the record <em>after</em> the one just processed.
+     *
+     * @param topic     topic the offset belongs to
+     * @param partition partition number (0-based)
+     * @param offset    offset of the <strong>last consumed</strong> record;
+     *                  the committed position will be {@code offset + 1}
+     */
+    void commitSync(Topic topic, int partition, long offset);
 
     /**
      * Commits current offsets asynchronously

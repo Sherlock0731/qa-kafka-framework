@@ -24,7 +24,7 @@ public class Topic {
      * Number of partitions for parallel processing
      */
     @Builder.Default
-    int partitionCount = 3;
+    int partitionCount = 2;
 
     /**
      * Replication factor for fault tolerance

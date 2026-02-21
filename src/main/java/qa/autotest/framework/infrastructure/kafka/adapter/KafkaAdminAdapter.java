@@ -7,11 +7,10 @@ import qa.autotest.framework.config.KafkaConfig;
 import qa.autotest.framework.domain.model.Partition;
 import qa.autotest.framework.domain.model.Topic;
 import qa.autotest.framework.domain.port.TopicRepository;
-import qa.autotest.framework.kafka.KafkaPropertiesBuilder;
+import qa.autotest.framework.infrastructure.KafkaPropertiesBuilder;
 
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 
 /**

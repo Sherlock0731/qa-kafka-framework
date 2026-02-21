@@ -9,11 +9,10 @@ import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.internals.RecordHeader;
 import org.apache.kafka.common.serialization.StringSerializer;
 import qa.autotest.framework.config.KafkaConfig;
-import qa.autotest.framework.domain.model.KafkaErrorCategory;
 import qa.autotest.framework.domain.model.Message;
 import qa.autotest.framework.domain.model.PublishResult;
 import qa.autotest.framework.domain.port.MessagePublisher;
-import qa.autotest.framework.kafka.KafkaPropertiesBuilder;
+import qa.autotest.framework.infrastructure.KafkaPropertiesBuilder;
 
 import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;

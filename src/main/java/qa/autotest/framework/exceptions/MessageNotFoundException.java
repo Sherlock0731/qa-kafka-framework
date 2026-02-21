@@ -1,4 +1,4 @@
-package qa.autotest.framework.domain.exception;
+package qa.autotest.framework.exceptions;
 
 import java.time.Duration;
 

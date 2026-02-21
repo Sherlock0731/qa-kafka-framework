@@ -3,7 +3,7 @@ package qa.autotest.framework.application.service;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import qa.autotest.framework.config.KafkaConfig;
-import qa.autotest.framework.domain.exception.MessageNotFoundException;
+import qa.autotest.framework.exceptions.MessageNotFoundException;
 import qa.autotest.framework.domain.model.*;
 import qa.autotest.framework.domain.port.MessageConsumer;
 import qa.autotest.framework.domain.port.MessagePublisher;
@@ -220,9 +220,38 @@ public class KafkaTestFacade implements AutoCloseable {
         consumptionService.commitOffsets();
     }
 
+    /**
+     * Commits a specific offset for a single partition.
+     * <p>
+     * Uses {@code KafkaConsumer.commitSync(Map&lt;TopicPartition, OffsetAndMetadata&gt;)}
+     * under the hood — the only Kafka-correct way to commit an explicit
+     * offset without calling {@code poll()} first.
+     * <p>
+     * <strong>Previous (incorrect) implementation:</strong>
+     * <pre>{@code
+     * consumptionService.seekToOffset(topic, partition, offset + 1);
+     * consumptionService.commitOffsets();   // commitSync() no-arg
+     * }</pre>
+     * This was wrong because {@code seek()} only repositions the in-memory
+     * fetch cursor; the no-arg {@code commitSync()} then persists that cursor
+     * position, which may silently overwrite committed progress on other
+     * partitions.  It also mutates consumer state as a side-effect of a
+     * commit, which is unexpected.
+     * <p>
+     * <strong>Current (correct) implementation:</strong> delegates to
+     * {@link MessageConsumptionService#commitOffset(Topic, int, long)} which
+     * calls the targeted {@code commitSync(Map)} overload.
+     *
+     * @param topicName name of the topic
+     * @param partition partition number (0-based)
+     * @param offset    offset of the <strong>last consumed</strong> record;
+     *                  the committed Kafka position will be {@code offset + 1}
+     */
     public void commitOffset(String topicName, int partition, long offset) {
-        consumptionService.seekToOffset(Topic.builder().name(topicName).build(), partition, offset + 1);
-        consumptionService.commitOffsets();
+        consumptionService.commitOffset(
+                Topic.builder().name(topicName).build(),
+                partition,
+                offset);
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

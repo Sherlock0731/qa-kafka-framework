@@ -5,7 +5,7 @@ import org.junit.platform.launcher.TestExecutionListener;
 import org.junit.platform.launcher.TestPlan;
 import qa.autotest.framework.config.ConfigFactory;
 import qa.autotest.framework.config.KafkaConfig;
-import qa.autotest.framework.kafka.KafkaTopicCleanupManager;
+import qa.autotest.framework.infrastructure.KafkaTopicCleanupManager;
 
 /**
  * Global Test Suite Cleanup Listener

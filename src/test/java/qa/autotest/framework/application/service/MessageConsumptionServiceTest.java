@@ -4,7 +4,7 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import qa.autotest.framework.domain.exception.MessageNotFoundException;
+import qa.autotest.framework.exceptions.MessageNotFoundException;
 import qa.autotest.framework.domain.model.*;
 import qa.autotest.framework.domain.port.MessageConsumer;
 

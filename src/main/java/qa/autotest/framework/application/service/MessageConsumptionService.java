@@ -2,7 +2,7 @@ package qa.autotest.framework.application.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import qa.autotest.framework.domain.exception.MessageNotFoundException;
+import qa.autotest.framework.exceptions.MessageNotFoundException;
 import qa.autotest.framework.domain.model.ConsumeResult;
 import qa.autotest.framework.domain.model.Message;
 import qa.autotest.framework.domain.model.Topic;
@@ -282,6 +282,32 @@ public class MessageConsumptionService {
         log.debug("Committing offsets synchronously");
         messageConsumer.commitSync();
         log.info("Offsets committed");
+    }
+
+    /**
+     * Use Case: Commit a specific offset for a single partition.
+     * <p>
+     * Delegates to {@link MessageConsumer#commitSync(Topic, int, long)} which
+     * uses {@code KafkaConsumer.commitSync(Map)} internally — the only
+     * Kafka-correct way to commit an explicit offset without a preceding
+     * {@code poll()}.
+     * <p>
+     * The committed Kafka position will be {@code offset + 1} (i.e. the next
+     * record to fetch), which matches the standard Kafka offset semantics.
+     *
+     * @param topic     topic the offset belongs to
+     * @param partition partition number (0-based)
+     * @param offset    offset of the <strong>last consumed</strong> record
+     */
+    public void commitOffset(Topic topic, int partition, long offset) {
+        log.debug("Committing explicit offset: topic={}, partition={}, lastConsumedOffset={}",
+                topic.getName(), partition, offset);
+
+        topic.validate();
+        messageConsumer.commitSync(topic, partition, offset);
+
+        log.info("Committed explicit offset: topic={}, partition={}, committedPosition={}",
+                topic.getName(), partition, offset + 1);
     }
 
     /**

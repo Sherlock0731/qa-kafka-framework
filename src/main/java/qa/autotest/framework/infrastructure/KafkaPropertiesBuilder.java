@@ -1,4 +1,4 @@
-package qa.autotest.framework.kafka;
+package qa.autotest.framework.infrastructure;
 
 import org.apache.kafka.clients.CommonClientConfigs;
 import qa.autotest.framework.config.KafkaConfig;
