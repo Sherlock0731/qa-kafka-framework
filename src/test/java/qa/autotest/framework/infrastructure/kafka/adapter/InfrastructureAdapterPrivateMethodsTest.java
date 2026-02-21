@@ -24,8 +24,10 @@ import static org.assertj.core.api.Assertions.*;
  * 1. KafkaProducerAdapter.toProducerRecord(Message) — маппинг доменного Message
  * в Kafka ProducerRecord. Тестируется через reflection, т.к. метод private.
  * <p>
- * 2. KafkaConsumerAdapter.mapGroupState(ConsumerGroupState) — маппинг Kafka enum
+ * 2. KafkaAdminAdapter.mapGroupState(ConsumerGroupState) — маппинг Kafka enum
  * в доменный GroupState. Тестируется через reflection.
+ * Метод перемещён из KafkaConsumerAdapter в KafkaAdminAdapter при рефакторинге
+ * (извлечение ConsumerGroupReader порта).
  * <p>
  * Альтернатива рефлекции: сделать методы package-private и добавить
  * тест в тот же пакет. Рефлексия выбрана здесь чтобы не менять
@@ -226,18 +228,20 @@ class InfrastructureAdapterPrivateMethodsTest {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // KafkaConsumerAdapter.mapGroupState
+    // KafkaAdminAdapter.mapGroupState
     // ═══════════════════════════════════════════════════════════════════════
 
     @Nested
-    @DisplayName("KafkaConsumerAdapter.mapGroupState")
+    @DisplayName("KafkaAdminAdapter.mapGroupState")
     class MapGroupStateTests {
 
         private Method mapGroupState;
 
         @BeforeEach
         void setUp() throws Exception {
-            mapGroupState = KafkaConsumerAdapter.class
+            // После рефакторинга (извлечение ConsumerGroupReader) метод mapGroupState
+            // перемещён из KafkaConsumerAdapter в KafkaAdminAdapter
+            mapGroupState = KafkaAdminAdapter.class
                     .getDeclaredMethod("mapGroupState", ConsumerGroupState.class);
             mapGroupState.setAccessible(true);
         }
@@ -247,12 +251,8 @@ class InfrastructureAdapterPrivateMethodsTest {
             var config = org.mockito.Mockito.mock(qa.autotest.framework.config.KafkaConfig.class);
             org.mockito.Mockito.when(config.kafkaBootstrapServers()).thenReturn("localhost:9092");
             org.mockito.Mockito.when(config.securityProtocol()).thenReturn("PLAINTEXT");
-            org.mockito.Mockito.when(config.consumerAutoOffsetReset()).thenReturn("earliest");
-            org.mockito.Mockito.when(config.consumerEnableAutoCommit()).thenReturn(false);
-            org.mockito.Mockito.when(config.consumerMaxPollRecords()).thenReturn(500);
-            org.mockito.Mockito.when(config.consumerSessionTimeoutMs()).thenReturn(30000);
 
-            KafkaConsumerAdapter adapter = new KafkaConsumerAdapter(config, "test-group");
+            KafkaAdminAdapter adapter = new KafkaAdminAdapter(config);
             return (ConsumerGroup.GroupState) mapGroupState.invoke(adapter, kafkaState);
         }
 
