@@ -6,6 +6,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import qa.autotest.framework.config.KafkaConfig;
 import qa.autotest.framework.domain.model.*;
+import qa.autotest.framework.domain.port.ConsumerGroupReader;
 import qa.autotest.framework.domain.port.MessageConsumer;
 import qa.autotest.framework.domain.port.MessagePublisher;
 import qa.autotest.framework.domain.port.TopicRepository;
@@ -41,6 +42,8 @@ class KafkaTestFacadeTest {
     @Mock
     TopicRepository topicRepository;
     @Mock
+    ConsumerGroupReader consumerGroupReader;
+    @Mock
     KafkaConfig config;
 
     private KafkaTestFacade facade;
@@ -63,7 +66,7 @@ class KafkaTestFacadeTest {
 
     @BeforeEach
     void setUp() {
-        facade = new KafkaTestFacade(publisher, consumer, topicRepository, config, GROUP_ID);
+        facade = new KafkaTestFacade(publisher, consumer, topicRepository, consumerGroupReader, config, GROUP_ID);
     }
 
     // ═══════════════════════════════════════════════════════════════════════

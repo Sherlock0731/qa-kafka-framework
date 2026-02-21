@@ -1,17 +1,12 @@
 package qa.autotest.framework.infrastructure.kafka.adapter;
 
 import lombok.extern.slf4j.Slf4j;
-import org.apache.kafka.clients.admin.AdminClient;
-import org.apache.kafka.clients.admin.AdminClientConfig;
-import org.apache.kafka.clients.admin.ConsumerGroupDescription;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import qa.autotest.framework.config.KafkaConfig;
 import qa.autotest.framework.domain.model.ConsumeResult;
-import qa.autotest.framework.domain.model.ConsumerGroup;
-import qa.autotest.framework.domain.model.KafkaErrorCategory;
 import qa.autotest.framework.domain.model.Message;
 import qa.autotest.framework.domain.model.Topic;
 import qa.autotest.framework.domain.port.MessageConsumer;
@@ -282,137 +277,6 @@ public class KafkaConsumerAdapter implements MessageConsumer {
         log.debug("Committed offsets asynchronously");
     }
 
-    // ── AdminClient for consumer group introspection ──────────────────────────
-    // AdminClient is thread-safe — one instance shared across all threads.
-    // We create it lazily on first getConsumerGroup() call.
-
-    private volatile AdminClient groupAdminClient;
-    private final Object adminClientLock = new Object();
-
-    // Cache to avoid hammering the broker on every Awaitility poll tick
-    private volatile ConsumerGroup cachedGroup;
-    private volatile long          cacheExpiresAt = 0L;
-    private static final long      CACHE_TTL_MS   = 5_000L;
-
-    @Override
-    public ConsumerGroup getConsumerGroup() {
-        long now = System.currentTimeMillis();
-        if (cachedGroup != null && now < cacheExpiresAt) {
-            return cachedGroup;
-        }
-
-        ConsumerGroup fresh = fetchConsumerGroupFromBroker();
-        cachedGroup     = fresh;
-        cacheExpiresAt  = now + CACHE_TTL_MS;
-        return fresh;
-    }
-
-    /**
-     * Calls {@code AdminClient.describeConsumerGroups()} for {@link #groupId}
-     * and maps the Kafka API response to the domain {@link ConsumerGroup} model.
-     * Falls back to a minimal EMPTY group on any error so tests still fail
-     * explicitly rather than throwing an unexpected exception.
-     */
-    private ConsumerGroup fetchConsumerGroupFromBroker() {
-        try {
-            AdminClient admin = getOrCreateGroupAdminClient();
-
-            Map<String, ConsumerGroupDescription> result =
-                    admin.describeConsumerGroups(List.of(groupId))
-                         .all()
-                         .get(10, java.util.concurrent.TimeUnit.SECONDS);
-
-            ConsumerGroupDescription desc = result.get(groupId);
-            if (desc == null) {
-                log.warn("describeConsumerGroups returned no entry for groupId={}", groupId);
-                return emptyGroup();
-            }
-
-            ConsumerGroup.GroupState domainState = mapGroupState(desc.state());
-
-            // Collect the topics this group is subscribed to via member assignments
-            Set<Topic> subscribedTopics = desc.members().stream()
-                    .flatMap(m -> m.assignment().topicPartitions().stream())
-                    .map(tp -> Topic.builder().name(tp.topic()).build())
-                    .collect(java.util.stream.Collectors.toSet());
-
-            // partitionAssignment: partition number → member clientId
-            Map<Integer, String> partitionAssignments = new HashMap<>();
-            for (org.apache.kafka.clients.admin.MemberDescription member : desc.members()) {
-                for (org.apache.kafka.common.TopicPartition tp : member.assignment().topicPartitions()) {
-                    partitionAssignments.put(tp.partition(), member.clientId());
-                }
-            }
-
-            Integer coordinatorId = desc.coordinator() != null ? desc.coordinator().id() : null;
-
-            ConsumerGroup group = ConsumerGroup.builder()
-                    .groupId(groupId)
-                    .state(domainState)
-                    .memberCount(desc.members().size())
-                    .subscribedTopics(subscribedTopics)
-                    .partitionAssignments(partitionAssignments)
-                    .coordinatorId(coordinatorId)
-                    .build();
-
-            log.debug("ConsumerGroup fetched: groupId={}, state={}, members={}, coordinator={}",
-                    groupId, domainState, desc.members().size(), coordinatorId);
-            return group;
-
-        } catch (Exception e) {
-            log.warn("Failed to describe consumer group '{}': {}", groupId, e.getMessage());
-            return emptyGroup();
-        }
-    }
-
-    /**
-     * Maps Kafka's {@code ConsumerGroupState} enum to the domain
-     * {@link ConsumerGroup.GroupState} enum.
-     */
-    private ConsumerGroup.GroupState mapGroupState(
-            org.apache.kafka.common.ConsumerGroupState kafkaState) {
-        if (kafkaState == null) {
-            return ConsumerGroup.GroupState.DEAD;
-        }
-        return switch (kafkaState) {
-            case STABLE              -> ConsumerGroup.GroupState.STABLE;
-            case PREPARING_REBALANCE -> ConsumerGroup.GroupState.PREPARING_REBALANCE;
-            case COMPLETING_REBALANCE-> ConsumerGroup.GroupState.COMPLETING_REBALANCE;
-            case EMPTY               -> ConsumerGroup.GroupState.EMPTY;
-            case DEAD                -> ConsumerGroup.GroupState.DEAD;
-            default                  -> ConsumerGroup.GroupState.DEAD;
-        };
-    }
-
-    private ConsumerGroup emptyGroup() {
-        return ConsumerGroup.builder()
-                .groupId(groupId)
-                .state(ConsumerGroup.GroupState.EMPTY)
-                .memberCount(0)
-                .subscribedTopics(Set.of())
-                .partitionAssignments(Map.of())
-                .build();
-    }
-
-    private AdminClient getOrCreateGroupAdminClient() {
-        if (groupAdminClient != null) {
-            return groupAdminClient;
-        }
-        synchronized (adminClientLock) {
-            if (groupAdminClient == null) {
-                Properties props = KafkaPropertiesBuilder.buildBaseProperties(config);
-                props.put(
-                    org.apache.kafka.clients.admin.AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG,
-                    "10000"
-                );
-                KafkaPropertiesBuilder.configureSecurity(props, config);
-                groupAdminClient = AdminClient.create(props);
-                log.debug("GroupAdminClient created for groupId={}", groupId);
-            }
-        }
-        return groupAdminClient;
-    }
-
     @Override
     public void close() {
         log.debug("Closing current thread consumer");
@@ -449,15 +313,6 @@ public class KafkaConsumerAdapter implements MessageConsumer {
         }
 
         consumerThreadLocal.remove();
-
-        if (groupAdminClient != null) {
-            try {
-                groupAdminClient.close(Duration.ofSeconds(5));
-            } catch (Exception e) {
-                log.warn("Failed to close groupAdminClient: {}", e.getMessage());
-            }
-            groupAdminClient = null;
-        }
 
         log.info("Consumer cleanup complete. Closed: {}, Failed: {}", closed, failed);
     }

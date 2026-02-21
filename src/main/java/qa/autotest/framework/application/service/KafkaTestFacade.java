@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import qa.autotest.framework.config.KafkaConfig;
 import qa.autotest.framework.exceptions.MessageNotFoundException;
 import qa.autotest.framework.domain.model.*;
+import qa.autotest.framework.domain.port.ConsumerGroupReader;
 import qa.autotest.framework.domain.port.MessageConsumer;
 import qa.autotest.framework.domain.port.MessagePublisher;
 import qa.autotest.framework.domain.port.TopicRepository;
@@ -78,7 +79,10 @@ public class KafkaTestFacade implements AutoCloseable {
         KafkaAdapters adapters = KafkaAdapterFactory.create(config);
 
         this.publishingService = new MessagePublishingService(adapters.publisher());
-        this.consumptionService = new MessageConsumptionService(adapters.consumer());
+        this.consumptionService = new MessageConsumptionService(
+                adapters.consumer(),
+                adapters.consumerGroupReader(),
+                adapters.consumerGroupId());
         this.topicManagementService = new TopicManagementService(adapters.topicRepository());
 
         this.config = config;
@@ -102,6 +106,7 @@ public class KafkaTestFacade implements AutoCloseable {
      *     mock(MessagePublisher.class),
      *     mock(MessageConsumer.class),
      *     mock(TopicRepository.class),
+     *     mock(ConsumerGroupReader.class),
      *     config,
      *     "test-group-1"
      * );
@@ -111,17 +116,18 @@ public class KafkaTestFacade implements AutoCloseable {
             MessagePublisher publisher,
             MessageConsumer consumer,
             TopicRepository topicRepository,
+            ConsumerGroupReader consumerGroupReader,
             KafkaConfig config,
             String consumerGroupId) {
 
         this.publishingService = new MessagePublishingService(publisher);
-        this.consumptionService = new MessageConsumptionService(consumer);
+        this.consumptionService = new MessageConsumptionService(
+                consumer, consumerGroupReader, consumerGroupId);
         this.topicManagementService = new TopicManagementService(topicRepository);
 
         this.config = config;
         this.consumerGroupId = consumerGroupId;
-        this.closeAllAction = () -> {
-        };
+        this.closeAllAction = () -> {};
         this.metricsSupplier = () -> "N/A (unit-test mode)";
 
         log.info("KafkaTestFacade initialized in unit-test mode [groupId={}]", consumerGroupId);

@@ -2,10 +2,13 @@ package qa.autotest.framework.infrastructure.kafka.adapter;
 
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.admin.*;
+import org.apache.kafka.common.ConsumerGroupState;
 import org.apache.kafka.common.config.ConfigResource;
 import qa.autotest.framework.config.KafkaConfig;
+import qa.autotest.framework.domain.model.ConsumerGroup;
 import qa.autotest.framework.domain.model.Partition;
 import qa.autotest.framework.domain.model.Topic;
+import qa.autotest.framework.domain.port.ConsumerGroupReader;
 import qa.autotest.framework.domain.port.TopicRepository;
 import qa.autotest.framework.infrastructure.KafkaPropertiesBuilder;
 
@@ -20,7 +23,7 @@ import java.util.stream.Collectors;
  * Manages topic lifecycle and metadata operations.
  */
 @Slf4j
-public class KafkaAdminAdapter implements TopicRepository {
+public class KafkaAdminAdapter implements TopicRepository, ConsumerGroupReader {
 
     private final KafkaConfig config;
     private final AdminClient adminClient;
@@ -281,6 +284,91 @@ public class KafkaAdminAdapter implements TopicRepository {
 
         log.warn("Topic not available after {}s: {}", timeoutSeconds, topic.getName());
         return false;
+    }
+
+    // ── ConsumerGroupReader ───────────────────────────────────────────────────
+
+    /**
+     * Fetches the current state of the given consumer group from the broker
+     * using {@code AdminClient.describeConsumerGroups()}.
+     * <p>
+     * The {@code AdminClient} instance is shared and thread-safe — no
+     * locking required.  On any broker or timeout error the method returns
+     * a minimal {@code EMPTY} group so that Awaitility callers fail with a
+     * {@code ConditionTimeoutException} rather than a unexpected exception.
+     *
+     * @param groupId consumer group ID to inspect
+     * @return current {@link ConsumerGroup} snapshot; never {@code null}
+     */
+    @Override
+    public ConsumerGroup describeConsumerGroup(String groupId) {
+        try {
+            Map<String, ConsumerGroupDescription> result =
+                    adminClient.describeConsumerGroups(List.of(groupId))
+                               .all()
+                               .get(10, java.util.concurrent.TimeUnit.SECONDS);
+
+            ConsumerGroupDescription desc = result.get(groupId);
+            if (desc == null) {
+                log.warn("describeConsumerGroups returned no entry for groupId={}", groupId);
+                return emptyGroup(groupId);
+            }
+
+            ConsumerGroup.GroupState domainState = mapGroupState(desc.state());
+
+            Set<Topic> subscribedTopics = desc.members().stream()
+                    .flatMap(m -> m.assignment().topicPartitions().stream())
+                    .map(tp -> Topic.builder().name(tp.topic()).build())
+                    .collect(java.util.stream.Collectors.toSet());
+
+            Map<Integer, String> partitionAssignments = new HashMap<>();
+            for (MemberDescription member : desc.members()) {
+                for (org.apache.kafka.common.TopicPartition tp : member.assignment().topicPartitions()) {
+                    partitionAssignments.put(tp.partition(), member.clientId());
+                }
+            }
+
+            Integer coordinatorId = desc.coordinator() != null ? desc.coordinator().id() : null;
+
+            ConsumerGroup group = ConsumerGroup.builder()
+                    .groupId(groupId)
+                    .state(domainState)
+                    .memberCount(desc.members().size())
+                    .subscribedTopics(subscribedTopics)
+                    .partitionAssignments(partitionAssignments)
+                    .coordinatorId(coordinatorId)
+                    .build();
+
+            log.debug("ConsumerGroup described: groupId={}, state={}, members={}, partitions={}",
+                    groupId, domainState, desc.members().size(), partitionAssignments.size());
+            return group;
+
+        } catch (Exception e) {
+            log.warn("Failed to describe consumer group '{}': {}", groupId, e.getMessage());
+            return emptyGroup(groupId);
+        }
+    }
+
+    private ConsumerGroup.GroupState mapGroupState(ConsumerGroupState kafkaState) {
+        if (kafkaState == null) return ConsumerGroup.GroupState.DEAD;
+        return switch (kafkaState) {
+            case STABLE               -> ConsumerGroup.GroupState.STABLE;
+            case PREPARING_REBALANCE  -> ConsumerGroup.GroupState.PREPARING_REBALANCE;
+            case COMPLETING_REBALANCE -> ConsumerGroup.GroupState.COMPLETING_REBALANCE;
+            case EMPTY                -> ConsumerGroup.GroupState.EMPTY;
+            case DEAD                 -> ConsumerGroup.GroupState.DEAD;
+            default                   -> ConsumerGroup.GroupState.DEAD;
+        };
+    }
+
+    private ConsumerGroup emptyGroup(String groupId) {
+        return ConsumerGroup.builder()
+                .groupId(groupId)
+                .state(ConsumerGroup.GroupState.EMPTY)
+                .memberCount(0)
+                .subscribedTopics(Set.of())
+                .partitionAssignments(Map.of())
+                .build();
     }
 
     @Override

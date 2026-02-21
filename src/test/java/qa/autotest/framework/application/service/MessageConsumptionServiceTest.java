@@ -6,6 +6,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import qa.autotest.framework.exceptions.MessageNotFoundException;
 import qa.autotest.framework.domain.model.*;
+import qa.autotest.framework.domain.port.ConsumerGroupReader;
 import qa.autotest.framework.domain.port.MessageConsumer;
 
 import java.time.Duration;
@@ -39,6 +40,8 @@ class MessageConsumptionServiceTest {
 
     @Mock
     MessageConsumer consumer;
+    @Mock
+    ConsumerGroupReader consumerGroupReader;
 
     private MessageConsumptionService service;
 
@@ -59,7 +62,7 @@ class MessageConsumptionServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new MessageConsumptionService(consumer);
+        service = new MessageConsumptionService(consumer, consumerGroupReader, "test-group");
     }
 
     // ═══════════════════════════════════════════════════════════════════════

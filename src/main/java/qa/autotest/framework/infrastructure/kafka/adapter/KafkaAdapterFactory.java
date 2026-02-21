@@ -2,6 +2,7 @@ package qa.autotest.framework.infrastructure.kafka.adapter;
 
 import lombok.extern.slf4j.Slf4j;
 import qa.autotest.framework.config.KafkaConfig;
+import qa.autotest.framework.domain.port.ConsumerGroupReader;
 import qa.autotest.framework.domain.port.MessageConsumer;
 import qa.autotest.framework.domain.port.MessagePublisher;
 import qa.autotest.framework.domain.port.TopicRepository;
@@ -46,7 +47,7 @@ public final class KafkaAdapterFactory {
         KafkaAdminAdapter admin = new KafkaAdminAdapter(config);
 
         log.debug("KafkaAdapterFactory: adapters created");
-        return new KafkaAdapters(producer, consumer, admin, groupId);
+        return new KafkaAdapters(producer, consumer, admin, admin, groupId);
     }
 
     /**
@@ -62,44 +63,48 @@ public final class KafkaAdapterFactory {
         private final KafkaProducerAdapter producerAdapter;
         private final KafkaConsumerAdapter consumerAdapter;
         private final KafkaAdminAdapter adminAdapter;
+        private final ConsumerGroupReader consumerGroupReader;
         private final String consumerGroupId;
 
         private KafkaAdapters(
                 KafkaProducerAdapter producerAdapter,
                 KafkaConsumerAdapter consumerAdapter,
                 KafkaAdminAdapter adminAdapter,
+                ConsumerGroupReader consumerGroupReader,
                 String consumerGroupId) {
 
             this.producerAdapter = producerAdapter;
             this.consumerAdapter = consumerAdapter;
             this.adminAdapter = adminAdapter;
+            this.consumerGroupReader = consumerGroupReader;
             this.consumerGroupId = consumerGroupId;
         }
 
-        /**
-         * Port view — the only view Application layer should use.
-         */
+        /** Port view — the only view Application layer should use. */
         public MessagePublisher publisher() {
             return producerAdapter;
         }
 
-        /**
-         * Port view — the only view Application layer should use.
-         */
+        /** Port view — the only view Application layer should use. */
         public MessageConsumer consumer() {
             return consumerAdapter;
         }
 
-        /**
-         * Port view — the only view Application layer should use.
-         */
+        /** Port view — the only view Application layer should use. */
         public TopicRepository topicRepository() {
             return adminAdapter;
         }
 
         /**
-         * Unique consumer group ID generated for this bundle.
+         * Port view for consumer group introspection (AdminClient operations).
+         * Implemented by {@link KafkaAdminAdapter} — separate from
+         * {@link #consumer()} to satisfy SRP.
          */
+        public ConsumerGroupReader consumerGroupReader() {
+            return consumerGroupReader;
+        }
+
+        /** Unique consumer group ID generated for this bundle. */
         public String consumerGroupId() {
             return consumerGroupId;
         }
@@ -114,9 +119,7 @@ public final class KafkaAdapterFactory {
             adminAdapter.close();
         }
 
-        /**
-         * Human-readable metrics string (tracked client counts).
-         */
+        /** Human-readable metrics string (tracked client counts). */
         public String metrics() {
             return String.format("Producers tracked: %d, Consumers tracked: %d",
                     producerAdapter.getTrackedProducerCount(),

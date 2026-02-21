@@ -1,12 +1,12 @@
 package qa.autotest.framework.application.service;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import qa.autotest.framework.exceptions.MessageNotFoundException;
 import qa.autotest.framework.domain.model.ConsumeResult;
 import qa.autotest.framework.domain.model.ConsumerGroup;
 import qa.autotest.framework.domain.model.Message;
 import qa.autotest.framework.domain.model.Topic;
+import qa.autotest.framework.domain.port.ConsumerGroupReader;
 import qa.autotest.framework.domain.port.MessageConsumer;
 
 import java.time.Duration;
@@ -22,10 +22,19 @@ import java.util.function.Predicate;
  * Depends on Port abstractions, not on infrastructure.
  */
 @Slf4j
-@RequiredArgsConstructor
 public class MessageConsumptionService {
 
     private final MessageConsumer messageConsumer;
+    private final ConsumerGroupReader consumerGroupReader;
+    private final String groupId;
+
+    public MessageConsumptionService(MessageConsumer messageConsumer,
+                                     ConsumerGroupReader consumerGroupReader,
+                                     String groupId) {
+        this.messageConsumer = messageConsumer;
+        this.consumerGroupReader = consumerGroupReader;
+        this.groupId = groupId;
+    }
 
     /**
      * Use Case: Subscribe to topics
@@ -331,16 +340,16 @@ public class MessageConsumptionService {
     /**
      * Use Case: Retrieve the current consumer group state from the broker.
      * <p>
-     * Delegates to {@link MessageConsumer#getConsumerGroup()} which calls
-     * {@code AdminClient.describeConsumerGroups()} under the hood.
-     * Used by {@code KafkaAwaitHelper.awaitRebalance()} to verify that
-     * partition assignments are non-empty before declaring rebalance complete.
+     * Delegates to {@link ConsumerGroupReader#describeConsumerGroup(String)}
+     * which calls {@code AdminClient.describeConsumerGroups()} under the hood.
+     * AdminClient lives in {@code KafkaAdminAdapter} — separate from the
+     * consumer, satisfying SRP.
      *
      * @return current {@link ConsumerGroup} snapshot from the broker
      */
     public ConsumerGroup getConsumerGroup() {
-        log.debug("Fetching consumer group state from broker");
-        ConsumerGroup group = messageConsumer.getConsumerGroup();
+        log.debug("Fetching consumer group state: groupId={}", groupId);
+        ConsumerGroup group = consumerGroupReader.describeConsumerGroup(groupId);
         log.debug("Consumer group state: id={}, state={}, members={}, partitions={}",
                 group.getGroupId(), group.getState(),
                 group.getMemberCount(),

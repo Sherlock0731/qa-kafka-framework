@@ -1,7 +1,6 @@
 package qa.autotest.framework.domain.port;
 
 import qa.autotest.framework.domain.model.ConsumeResult;
-import qa.autotest.framework.domain.model.ConsumerGroup;
 import qa.autotest.framework.domain.model.Topic;
 
 import java.time.Duration;
@@ -114,13 +113,6 @@ public interface MessageConsumer {
      * Commits current offsets asynchronously
      */
     void commitAsync();
-
-    /**
-     * Gets the consumer group this consumer belongs to
-     *
-     * @return Consumer group information
-     */
-    ConsumerGroup getConsumerGroup();
 
     /**
      * Closes the consumer and releases resources
