@@ -31,14 +31,14 @@
 | TC-002 | Массовая отправка сообщений (batch 100) | Positive | CRITICAL | `producer`, `critical` |
 | TC-003 | Отправка сообщения с custom headers | Positive | NORMAL | `producer` |
 | TC-004 | Отправка с ключом для партиционирования | Positive | CRITICAL | `producer`, `smoke`, `critical` |
-| TC-006 | Отправка сообщения больше max.message.bytes | Negative | NORMAL | `producer` |
+| TC-005 | Отправка сообщения больше max.message.bytes | Negative | NORMAL | `producer` |
 | TC-006 | Сжатие сообщений (gzip/lz4/snappy) | Positive | NORMAL | `producer`, `compression` |
-| TC-006A | Таймаут запроса продюсера | Negative | NORMAL | `producer`, `error-handling` |
-| TC-006B | Переполнение буфера продюсера | Negative | NORMAL | `producer`, `error-handling` |
-| TC-006C | Транзакционная отправка сообщений | Positive | CRITICAL | `producer`, `transactions` |
-| TC-006D | Сбор метрик продюсера | Positive | NORMAL | `producer`, `performance` |
 | TC-007 | Гарантия acks=all | Positive | CRITICAL | `producer`, `critical` |
 | TC-008 | Автоматический retry при временных ошибках | Positive | CRITICAL | `producer`, `error-handling`, `critical` |
+| TC-009 | Таймаут запроса продюсера | Negative | NORMAL | `producer`, `error-handling` |
+| TC-010 | Переполнение буфера продюсера | Negative | NORMAL | `producer`, `error-handling` |
+| TC-011 | Транзакционная отправка сообщений | Positive | CRITICAL | `producer`, `transactions` |
+| TC-012 | Сбор метрик продюсера | Positive | NORMAL | `producer`, `performance` |
 
 **Описание категории:**
 Тесты продюсера проверяют базовую функциональность отправки сообщений, обработку ошибок, производительность и транзакционные возможности.
@@ -77,7 +77,7 @@
 | TC-024 | Дубликаты при retry | Negative | NORMAL | `idempotence` |
 | TC-025 | Exactly-once доставка сообщений | Positive | BLOCKER | `idempotence`, `smoke`, `critical` |
 | TC-025A | Producer ID и sequence number | Positive | NORMAL | `idempotence` |
-| TC-025B | Транзакционная идемпотентность | Positive | CRITICAL | `idempotence`, `exactly-once` |
+| TC-026 | Порядок сообщений в partition (идемпотентность) | Positive | CRITICAL | `idempotence`, `exactly-once` |
 
 **Описание категории:**
 Тесты идемпотентности проверяют механизмы предотвращения дубликатов и гарантии exactly-once семантики.
@@ -210,7 +210,7 @@ mvn test -Dgroups=smoke
 **Включает:**
 - TC-001: Отправка одиночного сообщения
 - TC-004: Отправка с ключом
-- TC-009: Чтение с начала
+- TC-009: Чтение с начала (Consumer)
 - TC-016: Идемпотентный producer
 - TC-021: Порядок в партиции
 - TC-022: Ключ → партиция
@@ -247,10 +247,10 @@ mvn clean test -Pparallel -Dthread.count=2
 
 ```
 Producer (12)
-├── Базовые операции (5) ✓
-├── Обработка ошибок (4) ✓
-├── Производительность (2) ✓
-└── Транзакции (1) ✓
+├── Базовые операции (4): TC-001..TC-004 ✓
+├── Обработка ошибок (4): TC-005, TC-009, TC-010 + TC-008 ✓
+├── Производительность (2): TC-006, TC-012 ✓
+└── Транзакции (2): TC-007, TC-011 ✓
 
 Consumer (12)
 ├── Стратегии чтения (3) ✓
@@ -428,7 +428,7 @@ mvn test -Dtest=PerformanceTests
 # TC-001: Отправка одиночного сообщения
 mvn test -Dtest=ProducerTests#testSendSingleMessage
 
-# TC-009: Чтение с начала
+# TC-009: Чтение с начала (Consumer)
 mvn test -Dtest=ConsumerTests#testReadFromBeginning
 
 # TC-016: Идемпотентный producer
@@ -533,7 +533,14 @@ mvn surefire-report:report
 
 ## Версия матрицы
 
-**Версия:** v1.1  
-**Дата:** 2026-01-18  
+**Версия:** v1.2  
+**Дата:** 2026-02-23  
 **Автор:** **Vitaliy Popravka** - QA Automation Engineer  
 **Статус:** COMPLETE ✅
+
+### Changelog
+
+| Версия | Дата | Изменения |
+|--------|------|-----------|
+| v1.2 | 2026-02-23 | Устранены коллизии ID в Producer: TC-005 (oversized), TC-006 (compression), TC-007..TC-012 (последовательная нумерация вместо TC-006A/B/C/D). Исправлен TC-025B → TC-026 в Idempotence. Синхронизация с кодом после рефакторинга ProducerTests. |
+| v1.1 | 2026-01-18 | Первичное наполнение матрицы (66 тест-кейсов). |

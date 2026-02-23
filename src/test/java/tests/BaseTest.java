@@ -27,12 +27,13 @@ import java.util.*;
  * - Clear separation of concerns
  * <p>
  * Memory Leak Prevention:
- * - Uses WeakReference tracking in adapters
- * - Global cleanup in @AfterAll
- * - Thread-safe for parallel execution
+ * - Uses WeakHashMap-backed set: GC может собрать facade после закрытия теста,
+ *   не дожидаясь @AfterAll — устраняет накопление ссылок при большом числе тестов
+ * - Global cleanup в @AfterAll для явного закрытия ресурсов
+ * - Thread-safe для параллельного выполнения
  *
  * @author QA Automation Team
- * @version 2.0.0 - Hexagonal Architecture
+ * @version 2.0.1 - Hexagonal Architecture + WeakReference tracking
  */
 @Slf4j
 @ExtendWith({TestMetricsExtension.class, AllureKafkaListener.class, KafkaTestExecutionListener.class})
@@ -41,11 +42,18 @@ public abstract class BaseTest {
     protected static final KafkaConfig CONFIG = ConfigFactory.getConfig();
 
     /**
-     * Static collection to track all facades across all test instances
-     * Required for global cleanup in @AfterAll
+     * WeakHashMap-backed set для отслеживания фасадов.
+     * <p>
+     * Использование WeakReference: если тест завершился и kafka-поле обнулилось,
+     * GC может собрать объект до вызова @AfterAll, не допуская накопления
+     * мёртвых ссылок при большом числе тестов (memory pressure prevention).
+     * <p>
+     * @AfterAll всё равно вызывает closeAll() на оставшихся живых фасадах —
+     * это страховочный слой для тех, чей жизненный цикл выходит за рамки одного теста
+     * (например, facade из createNewFacade()).
      */
     private static final Set<KafkaTestFacade> ALL_FACADES =
-            Collections.synchronizedSet(new HashSet<>());
+            Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<>()));
 
     /**
      * Test instance facade - provides simplified API
@@ -184,14 +192,14 @@ public abstract class BaseTest {
 
     /**
      * Creates a test topic with given partitions.
-     * Returns topic name for use in tests.
+     * replicationFactor берётся из конфигурации (kafka.test.topic.replication.factor).
      */
     @Step("Create test topic: {topicName} with {partitions} partitions")
     protected String createTestTopic(String topicName, int partitions) {
         Topic topic = Topic.builder()
                 .name(topicName)
                 .partitionCount(partitions)
-                .replicationFactor((short) 1)
+                .replicationFactor(CONFIG.testTopicReplicationFactor())
                 .build();
 
         kafka.createTopic(topic);

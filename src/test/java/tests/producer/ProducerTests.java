@@ -227,7 +227,7 @@ public class ProducerTests extends BaseTest {
     }
 
     @Test
-    @DisplayName("TC-006A: Producer request timeout")
+    @DisplayName("TC-009: Producer request timeout")
     @Description("Verify producer handles request timeout properly")
     @Severity(SeverityLevel.NORMAL)
     void testProducerTimeout() {
@@ -245,11 +245,11 @@ public class ProducerTests extends BaseTest {
 
         assertThat(result.isSuccess()).isTrue();
         assertThat(duration).isLessThan(30_000L);
-        log.info("TC-006A: Message sent in {} ms", duration);
+        log.info("TC-009: Message sent in {} ms", duration);
     }
 
     @Test
-    @DisplayName("TC-006B: Producer buffer overflow handling")
+    @DisplayName("TC-010: Producer buffer overflow handling")
     @Description("Verify producer handles buffer full scenario")
     @Severity(SeverityLevel.NORMAL)
     void testProducerBufferFull() {
@@ -261,11 +261,11 @@ public class ProducerTests extends BaseTest {
 
         long successCount = results.stream().filter(PublishResult::isSuccess).count();
         assertThat(successCount).isGreaterThan(0);
-        log.info("TC-006B: {}/{} messages sent", successCount, messages.size());
+        log.info("TC-010: {}/{} messages sent", successCount, messages.size());
     }
 
     @Test
-    @DisplayName("TC-006C: Transactional message sending")
+    @DisplayName("TC-011: Transactional message sending")
     @Description("Verify transactional producer behavior")
     @Severity(SeverityLevel.CRITICAL)
     void testTransactionalProducer() {
@@ -280,11 +280,11 @@ public class ProducerTests extends BaseTest {
         List<Message> consumed = KafkaAwaitHelper.awaitNewMessages(kafka, 10, 15);
 
         assertThat(consumed.size()).isIn(0, 10);
-        log.info("TC-006C: Transactional publish: {} messages consumed", consumed.size());
+        log.info("TC-011: Transactional publish: {} messages consumed", consumed.size());
     }
 
     @Test
-    @DisplayName("TC-006D: Producer metrics collection")
+    @DisplayName("TC-012: Producer metrics collection")
     @Description("Verify producer exposes metrics for monitoring")
     @Severity(SeverityLevel.NORMAL)
     void testProducerMetrics() {
@@ -299,7 +299,7 @@ public class ProducerTests extends BaseTest {
 
         long sentCount = results.stream().filter(PublishResult::isSuccess).count();
 
-        log.info("TC-006D: {} messages in {} ms, avg {} ms/msg",
+        log.info("TC-012: {} messages in {} ms, avg {} ms/msg",
                 sentCount, duration, sentCount > 0 ? duration / sentCount : 0);
 
         assertThat(duration).isGreaterThan(0);
