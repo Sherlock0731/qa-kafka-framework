@@ -47,15 +47,47 @@ public class KafkaAwaitHelper {
     // ── Consumer readiness ────────────────────────────────────────────────────
 
     /**
-     * Subscribes to topic, then waits until the consumer group is joined
-     * and partitions are assigned.
-     * <p>
-     * All poll calls happen in the calling (main) thread via pollInSameThread().
-     * Replaces: subscribe() + Thread.sleep(3000) + pre-warm poll.
+     * Subscribes to a topic, then waits until the consumer has joined the
+     * consumer group <strong>and</strong> the group coordinator has assigned
+     * at least one partition to this consumer instance.
+     *
+     * <h3>Why poll() + isAssigned(), not just poll()?</h3>
+     * The previous implementation used:
+     * <pre>{@code
+     * .until(() -> {
+     *     ConsumeResult r = kafka.poll(Duration.ofMillis(300));
+     *     return r != null;   // always true — poll() never returns null
+     * });
+     * }</pre>
+     * {@code poll()} returns {@link ConsumeResult#empty()} or
+     * {@link ConsumeResult#failureFrom} — never {@code null} — so the
+     * condition evaluated to {@code true} on the very first iteration,
+     * regardless of whether the group coordinator had finished the rebalance.
+     * Tests calling {@code awaitConsumerReady()} then immediately polled for
+     * messages and received zero results because the consumer was still in
+     * {@code PREPARING_REBALANCE}.
+     *
+     * <h3>Correct termination condition</h3>
+     * {@code poll()} is required to drive the JoinGroup / SyncGroup Kafka
+     * protocol — without it, the broker never delivers the partition
+     * assignment to the client. {@code isAssigned()} reads
+     * {@code KafkaConsumer.assignment()}, which is a local in-memory set
+     * that becomes non-empty only after the rebalance protocol completes and
+     * the next {@code poll()} processes the assignment response. The
+     * combination of {@code poll()} <em>then</em> {@code isAssigned()} is
+     * therefore the minimal correct readiness check.
+     *
+     * <h3>Threading</h3>
+     * {@code pollInSameThread()} ensures both calls execute on the calling
+     * (main test) thread, which is mandatory because {@code KafkaConsumer}
+     * is stored in a {@code ThreadLocal} and must never be accessed from
+     * any other thread.
      *
      * @param kafka      facade
      * @param topicName  topic to subscribe to
      * @param timeoutSec max wait in seconds
+     * @throws org.awaitility.core.ConditionTimeoutException if partition
+     *         assignment does not complete within {@code timeoutSec}
      */
     public static void awaitConsumerReady(KafkaTestFacade kafka,
                                           String topicName,
@@ -63,20 +95,19 @@ public class KafkaAwaitHelper {
         log.debug("Subscribing and awaiting consumer ready: {}", topicName);
         kafka.subscribe(topicName);
 
-        // pollInSameThread() — condition runs in the calling thread,
-        // so KafkaConsumer ThreadLocal is accessible.
-        await("consumer group joined: " + topicName)
+        await("consumer group joined + partitions assigned: " + topicName)
                 .atMost(timeoutSec, TimeUnit.SECONDS)
                 .pollInterval(Duration.ofMillis(500))
                 .pollInSameThread()
                 .ignoreException(IllegalStateException.class)
                 .until(() -> {
-                    // A successful short poll means partitions are assigned
-                    ConsumeResult r = kafka.poll(Duration.ofMillis(300));
-                    return r != null; // poll returned without IllegalStateException
+                    kafka.poll(Duration.ofMillis(300));
+                    boolean assigned = kafka.isAssigned();
+                    log.trace("awaitConsumerReady: isAssigned={} on '{}'", assigned, topicName);
+                    return assigned;
                 });
 
-        log.debug("Consumer ready on topic: {}", topicName);
+        log.debug("Consumer ready on topic '{}': partitions assigned", topicName);
     }
 
     // ── Publish propagation ───────────────────────────────────────────────────
@@ -175,18 +206,6 @@ public class KafkaAwaitHelper {
      * <p>
      * All poll calls happen in the calling (main) thread via
      * {@code pollInSameThread()} so KafkaConsumer ThreadLocal is respected.
-     * <p>
-     * <strong>Previous (broken) implementation:</strong>
-     * <pre>{@code
-     * .until(() -> {
-     *     kafka.poll(Duration.ofMillis(300));
-     *     return true;   // condition was always true — rebalance never checked
-     * });
-     * }</pre>
-     * This caused flaky tests: the method returned immediately after the first
-     * poll, regardless of whether the coordinator had assigned any partitions.
-     * Subsequent polls in the test would then return 0 messages because the
-     * consumer was still in PREPARING_REBALANCE.
      *
      * @param kafka      facade (already subscribed, or subscribe will be called here)
      * @param topicName  topic to subscribe to
