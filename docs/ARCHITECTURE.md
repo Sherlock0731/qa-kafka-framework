@@ -292,36 +292,6 @@ qa-kafka-framework/
 | **KafkaConsumerAdapter** | `MessageConsumer` | ThreadLocal<KafkaConsumer> + Set<WeakReference>. Три исправленных метода (см. ниже). |
 | **KafkaAdminAdapter** | `TopicRepository` + `ConsumerGroupReader` | Один `AdminClient` обслуживает оба порта. |
 
-##### Исправления в KafkaConsumerAdapter
-
-**`consumeAll()` — consecutive-empty-poll threshold:**
-
-Было: `if (records.isEmpty()) { break; }` — прерывается на первом пустом poll независимо от причины.
-
-Стало: счётчик `consecutiveEmptyPolls`, break только при `consecutiveEmptyPolls >= CONSECUTIVE_EMPTY_POLLS_THRESHOLD (3)`. Любой непустой poll сбрасывает счётчик в 0. Устраняет flaky-тесты при broker batch assembly delay, network jitter или rebalance mid-poll.
-
-```
-Порог 3: при fetch.max.wait.ms=500 и cap=1000ms на poll
-3 последовательных промаха ≥ ~1.5 s тишины от брокера
-→ надёжно отличает "временно занят" от "действительно пусто"
-```
-
-**`awaitConsumerReady()` — реальная проверка partition assignment:**
-
-Было: `return r != null` — `poll()` никогда не возвращает null, условие всегда true на первой итерации.
-
-Стало: `kafka.poll(300ms)` для движения JoinGroup/SyncGroup протокола, затем `kafka.isAssigned()` — читает `KafkaConsumer.assignment()` (локальный in-memory set, без сетевого вызова). Возвращает true только после завершения rebalance.
-
-**`catch(Exception e)` — interrupt flag:**
-
-Во всех трёх методах (`poll`, `pollMessages`, `consumeAll`) добавлено:
-```java
-if (Thread.interrupted()) {
-    Thread.currentThread().interrupt();
-}
-```
-`Thread.interrupted()` атомарно читает и сбрасывает флаг. Если был установлен — восстанавливается. Позволяет upstream-коду (Awaitility, JUnit, JVM shutdown hook) корректно реагировать на прерывание.
-
 #### Aiven API — `infrastructure/api/aiven/`
 
 `AivenApiController` — HTTP-клиент (REST Assured) к Aiven Management API:

@@ -19,13 +19,8 @@
 - **SSL/TLS из коробки** — PKCS12 (keystore) + JKS (truststore) для Aiven и любых защищённых кластеров
 - **Потокобезопасные клиенты** — `ThreadLocal` + `WeakReference`-трекинг предотвращают утечки памяти при параллельном запуске
 - **Глобальная очистка ресурсов** — `closeAll()` закрывает все producer/consumer из любого потока
-- **Надёжный `consumeAll()`** — consecutive-empty-poll счётчик (порог: 3) вместо break на первом пустом ответе; устраняет flaky-тесты при broker load
-- **Корректный `awaitConsumerReady()`** — ожидает реального partition assignment через `isAssigned()`, не возвращает `true` на первом же poll
-- **Правильная обработка прерываний** — `Thread.interrupted()` + `Thread.currentThread().interrupt()` во всех catch-блоках `poll()`/`pollMessages()`/`consumeAll()`
 - **Богатая иерархия исключений** — 8 типов специализированных исключений с контекстной информацией и `KafkaErrorCategory`-классификацией для Allure
-- **4 порта Domain** — `MessagePublisher`, `MessageConsumer`, `TopicRepository`, `ConsumerGroupReader`; `KafkaAdminAdapter` реализует два последних
 - **Aiven API Controller** — управление топиками через REST API Aiven (Bearer-token авторизация)
-- **TestMetricsExtension** — JUnit 5 Extension с per-class `TestMetricsCollector`; хранится в `ExtensionContext.Store`, устраняя static-гонку при параллельном запуске
 - **Allure listeners** — `AllureKafkaListener` (7 категорий сбоев), `KafkaTestExecutionListener`
 - **157 тест-методов**: 66 интеграционных + 91 unit (application, domain, config, infra, metrics, utils)
 - **CI/CD через GitHub Actions** с публикацией Allure-отчёта на GitHub Pages
@@ -69,9 +64,6 @@ src/
 │   │   │   ├── KafkaAdapterFactory.java         # Единственная точка создания адаптеров
 │   │   │   ├── KafkaAdminAdapter.java           # implements TopicRepository + ConsumerGroupReader
 │   │   │   ├── KafkaConsumerAdapter.java        # implements MessageConsumer
-│   │   │   │                                    #   FIXED: consumeAll() — consecutive-empty threshold=3
-│   │   │   │                                    #   FIXED: isAssigned() — реальная проверка assignment
-│   │   │   │                                    #   FIXED: interrupt flag restored в catch(Exception)
 │   │   │   └── KafkaProducerAdapter.java        # implements MessagePublisher
 │   │   ├── api/aiven/
 │   │   │   ├── AivenApiController.java          # REST-клиент к Aiven Management API
@@ -91,7 +83,6 @@ src/
 │   │
 │   ├── utils/
 │   │   ├── KafkaAwaitHelper.java                # Awaitility-based helpers
-│   │   │                                        #   FIXED: awaitConsumerReady() — poll()+isAssigned()
 │   │   └── RetryContext.java                    # Allure attachment helper
 │   │
 │   └── exceptions/
