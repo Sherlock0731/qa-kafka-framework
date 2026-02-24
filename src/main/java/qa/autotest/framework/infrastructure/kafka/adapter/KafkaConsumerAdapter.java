@@ -28,6 +28,25 @@ import java.util.stream.Collectors;
 @Slf4j
 public class KafkaConsumerAdapter implements MessageConsumer {
 
+    /**
+     * Number of consecutive empty polls required to conclude that no more
+     * messages are available on the broker.
+     * <p>
+     * A single empty {@code poll()} is NOT a reliable end-of-stream signal:
+     * the broker may temporarily return nothing due to batch-assembly delay
+     * (controlled by {@code fetch.max.wait.ms}), transient network jitter, or
+     * a partition rebalance that is still in progress mid-poll.  Waiting for
+     * {@value} empty polls in a row gives the broker enough time to recover
+     * from any of those conditions before we give up.
+     * <p>
+     * Value reasoning: with the default {@code fetch.max.wait.ms=500} and a
+     * poll timeout cap of 1 000 ms per iteration, three consecutive misses
+     * represent at minimum ~1.5 s of broker silence — sufficient to distinguish
+     * "temporarily busy" from "genuinely empty" under normal load.  Increase
+     * this constant in environments with high GC pause or very slow brokers.
+     */
+    private static final int CONSECUTIVE_EMPTY_POLLS_THRESHOLD = 3;
+
     private final KafkaConfig config;
     private final String groupId;
     private final ThreadLocal<KafkaConsumer<String, String>> consumerThreadLocal;
@@ -150,10 +169,48 @@ public class KafkaConsumerAdapter implements MessageConsumer {
         }
     }
 
+    /**
+     * Consumes up to {@code maxMessages} messages within {@code timeout}, stopping
+     * early only after {@link #CONSECUTIVE_EMPTY_POLLS_THRESHOLD} consecutive empty
+     * poll responses — not on the first empty poll.
+     *
+     * <h3>Why not break on the first empty poll?</h3>
+     * A single empty {@code poll()} is NOT a reliable end-of-stream signal.
+     * The broker may return nothing temporarily due to:
+     * <ul>
+     *   <li><b>Batch assembly delay</b> — {@code fetch.max.wait.ms} (default 500 ms)
+     *       controls how long the broker waits to fill a batch before responding.
+     *       If the batch isn't full yet, the response arrives slightly after the
+     *       poll timeout cap, making the next poll appear empty.</li>
+     *   <li><b>Network jitter</b> — a brief TCP stall can cause a poll to return
+     *       before the broker response arrives.</li>
+     *   <li><b>Rebalance mid-poll</b> — a partition reassignment during the poll
+     *       causes the broker to return an empty response while the new assignment
+     *       is being negotiated.</li>
+     * </ul>
+     * Breaking on the first empty poll under any of these conditions causes
+     * {@code consumeAll(100, 30s)} to return 5 messages instead of 100 — a
+     * source of flaky tests that is extremely difficult to reproduce locally.
+     *
+     * <h3>Termination conditions (in priority order)</h3>
+     * <ol>
+     *   <li>{@code allMessages.size() >= maxMessages} — collected enough, stop.</li>
+     *   <li>Wall-clock deadline exceeded — timeout, stop.</li>
+     *   <li>{@link #CONSECUTIVE_EMPTY_POLLS_THRESHOLD} empty polls in a row —
+     *       broker is genuinely empty, stop.</li>
+     * </ol>
+     * Any non-empty poll resets the consecutive counter to 0.
+     *
+     * @param maxMessages upper bound on collected messages
+     * @param timeout     wall-clock deadline for the entire operation
+     * @return {@link ConsumeResult} containing all collected messages on success,
+     *         or a failure result if an unrecoverable exception is thrown
+     */
     @Override
     public ConsumeResult consumeAll(int maxMessages, Duration timeout) {
         long endTime = System.currentTimeMillis() + timeout.toMillis();
         List<Message> allMessages = new ArrayList<>();
+        int consecutiveEmptyPolls = 0;
 
         try {
             while (allMessages.size() < maxMessages && System.currentTimeMillis() < endTime) {
@@ -162,11 +219,25 @@ public class KafkaConsumerAdapter implements MessageConsumer {
                     break;
                 }
 
-                ConsumerRecords<String, String> records = getConsumer().poll(Duration.ofMillis(Math.min(remainingTime, 1000)));
+                ConsumerRecords<String, String> records =
+                        getConsumer().poll(Duration.ofMillis(Math.min(remainingTime, 1000)));
 
                 if (records.isEmpty()) {
-                    break; // No more messages available
+                    consecutiveEmptyPolls++;
+                    log.trace("Empty poll #{} (consecutive), collected so far: {}",
+                            consecutiveEmptyPolls, allMessages.size());
+
+                    if (consecutiveEmptyPolls >= CONSECUTIVE_EMPTY_POLLS_THRESHOLD) {
+                        log.debug("Stopping consumeAll after {} consecutive empty polls — "
+                                        + "broker has no more messages. Collected: {}/{}",
+                                consecutiveEmptyPolls, allMessages.size(), maxMessages);
+                        break;
+                    }
+                    continue;  // try again — do NOT break on the first empty poll
                 }
+
+                // Non-empty poll: reset the consecutive counter
+                consecutiveEmptyPolls = 0;
 
                 for (ConsumerRecord<String, String> record : records) {
                     allMessages.add(toDomainMessage(record));
@@ -177,10 +248,14 @@ public class KafkaConsumerAdapter implements MessageConsumer {
                 }
             }
 
-            log.debug("Consumed {} messages (max: {})", allMessages.size(), maxMessages);
+            log.debug("consumeAll complete: collected={}, max={}, consecutiveEmptyAtEnd={}",
+                    allMessages.size(), maxMessages, consecutiveEmptyPolls);
             return ConsumeResult.success(allMessages);
 
         } catch (Exception e) {
+            if (Thread.interrupted()) {
+                Thread.currentThread().interrupt();
+            }
             log.error("Failed to consume all messages: {}", e.getMessage(), e);
             return ConsumeResult.failureFrom(e.getMessage(), e);
         }
