@@ -132,6 +132,9 @@ public class KafkaConsumerAdapter implements MessageConsumer {
             return ConsumeResult.success(messages);
 
         } catch (Exception e) {
+            if (Thread.interrupted()) {
+                Thread.currentThread().interrupt();
+            }
             log.error("Failed to poll messages: {}", e.getMessage(), e);
             return ConsumeResult.failureFrom(e.getMessage(), e);
         }
@@ -164,6 +167,9 @@ public class KafkaConsumerAdapter implements MessageConsumer {
             return ConsumeResult.success(allMessages);
 
         } catch (Exception e) {
+            if (Thread.interrupted()) {
+                Thread.currentThread().interrupt();
+            }
             log.error("Failed to poll expected messages: {}", e.getMessage(), e);
             return ConsumeResult.failureFrom(e.getMessage(), e);
         }
