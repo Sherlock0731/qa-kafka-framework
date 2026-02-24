@@ -17,14 +17,17 @@
 ## Возможности
 
 - **SSL/TLS из коробки** — PKCS12 (keystore) + JKS (truststore) для Aiven и любых защищённых кластеров
-- **Потокобезопасные менеджеры** — `ThreadLocal` + `WeakReference`-трекинг предотвращают утечки памяти при параллельном запуске
-- **Глобальная очистка ресурсов** — `closeAll()` закрывает все producer/consumer из любого потока ForkJoinPool
-- **Retry с exponential backoff** — создание топиков и polling сообщений с повторными попытками (до 5 раз)
-- **Богатая иерархия исключений** — 7 типов специализированных исключений с контекстной информацией и категоризацией для Allure
+- **Потокобезопасные клиенты** — `ThreadLocal` + `WeakReference`-трекинг предотвращают утечки памяти при параллельном запуске
+- **Глобальная очистка ресурсов** — `closeAll()` закрывает все producer/consumer из любого потока
+- **Надёжный `consumeAll()`** — consecutive-empty-poll счётчик (порог: 3) вместо break на первом пустом ответе; устраняет flaky-тесты при broker load
+- **Корректный `awaitConsumerReady()`** — ожидает реального partition assignment через `isAssigned()`, не возвращает `true` на первом же poll
+- **Правильная обработка прерываний** — `Thread.interrupted()` + `Thread.currentThread().interrupt()` во всех catch-блоках `poll()`/`pollMessages()`/`consumeAll()`
+- **Богатая иерархия исключений** — 8 типов специализированных исключений с контекстной информацией и `KafkaErrorCategory`-классификацией для Allure
+- **4 порта Domain** — `MessagePublisher`, `MessageConsumer`, `TopicRepository`, `ConsumerGroupReader`; `KafkaAdminAdapter` реализует два последних
 - **Aiven API Controller** — управление топиками через REST API Aiven (Bearer-token авторизация)
-- **TestMetricsCollector** — время отправки, polling, категории ошибок, процент успешных тестов
-- **Allure listeners** — `AllureKafkaListener` и `KafkaTestExecutionListener` для обогащения отчётов
-- **66 тест-кейсов** покрывают 11 функциональных областей Kafka
+- **TestMetricsExtension** — JUnit 5 Extension с per-class `TestMetricsCollector`; хранится в `ExtensionContext.Store`, устраняя static-гонку при параллельном запуске
+- **Allure listeners** — `AllureKafkaListener` (7 категорий сбоев), `KafkaTestExecutionListener`
+- **157 тест-методов**: 66 интеграционных + 91 unit (application, domain, config, infra, metrics, utils)
 - **CI/CD через GitHub Actions** с публикацией Allure-отчёта на GitHub Pages
 - **Docker / Docker Compose** для запуска в контейнере
 
@@ -36,93 +39,119 @@
 
 ```
 src/
-├── main/
-│   ├── java/qa/autotest/framework/
-│   │   │
-│   │   ├── domain/                              # Domain Layer
-│   │   │   ├── exception/
-│   │   │   │   └── MessageNotFoundException.java
-│   │   │   ├── model/
-│   │   │   │   ├── ConsumeResult.java
-│   │   │   │   ├── ConsumerGroup.java
-│   │   │   │   ├── KafkaErrorCategory.java      # Единая таксономия ошибок
-│   │   │   │   ├── Message.java
-│   │   │   │   ├── Partition.java
-│   │   │   │   ├── PublishResult.java
-│   │   │   │   └── Topic.java
-│   │   │   └── port/
-│   │   │       ├── MessageConsumer.java
-│   │   │       ├── MessagePublisher.java
-│   │   │       └── TopicRepository.java
-│   │   │
-│   │   ├── application/service/                 # Application Layer
-│   │   │   ├── KafkaTestFacade.java             # Главный фасад
-│   │   │   ├── MessageConsumptionService.java
-│   │   │   ├── MessagePublishingService.java
-│   │   │   └── TopicManagementService.java
-│   │   │
-│   │   ├── infrastructure/                      # Infrastructure Layer
-│   │   │   ├── kafka/adapter/
-│   │   │   │   ├── KafkaAdminAdapter.java       # implements TopicRepository
-│   │   │   │   ├── KafkaConsumerAdapter.java    # implements MessageConsumer
-│   │   │   │   └── KafkaProducerAdapter.java    # implements MessagePublisher
-│   │   │   └── api/aiven/
-│   │   │       ├── AivenApiController.java      # REST-клиент к Aiven API
-│   │   │       └── dto/
-│   │   │           ├── AivenTopicDeleteResponseDto.java
-│   │   │           └── AivenTopicListResponseDto.java
-│   │   │
-│   │   ├── config/                              # Configuration
-│   │   │   ├── ConfigFactory.java               # Fail-fast validation
-│   │   │   ├── ConfigurationException.java
-│   │   │   └── KafkaConfig.java                 # Owner interface (40+ properties)
-│   │   │
-│   │   ├── kafka/                               # Kafka Utilities
-│   │   │   ├── KafkaPropertiesBuilder.java      # SSL/TLS config builder
-│   │   │   └── KafkaTopicCleanupManager.java
-│   │   │
-│   │   ├── utils/                               # General Utilities
-│   │   │   ├── KafkaAwaitHelper.java
-│   │   │   └── RetryContext.java
-│   │   │
-│   │   ├── metrics/
-│   │   │   └── TestMetricsCollector.java        # Thread-safe metrics
-│   │   │
-│   │   └── exceptions/                          # Legacy (to be migrated to domain/)
-│   │       ├── KafkaConsumerException.java
-│   │       ├── KafkaProducerException.java
-│   │       ├── KafkaRebalanceException.java
-│   │       ├── KafkaTestException.java          # Base exception
-│   │       ├── KafkaTimeoutException.java
-│   │       ├── KafkaTopicManagementException.java
-│   │       └── TestDataException.java
+├── main/java/qa/autotest/framework/
 │   │
-│   └── resources/
-│       ├── config/
-│       │   ├── ci.properties
-│       │   ├── default.properties
-│       │   └── local.properties
-│       └── logback.xml
+│   ├── domain/                                  # Domain Layer
+│   │   ├── model/
+│   │   │   ├── ConsumeResult.java
+│   │   │   ├── ConsumerGroup.java
+│   │   │   ├── KafkaErrorCategory.java          # Единая таксономия ошибок (13 категорий)
+│   │   │   ├── Message.java
+│   │   │   ├── Partition.java
+│   │   │   ├── PublishResult.java
+│   │   │   └── Topic.java
+│   │   └── port/                                # Outbound Ports (интерфейсы)
+│   │       ├── ConsumerGroupReader.java          # describeConsumerGroup()
+│   │       ├── MessageConsumer.java              # subscribe/poll/consumeAll/seek/commit/isAssigned
+│   │       ├── MessagePublisher.java             # publish/publishAsync/publishBatch/flush
+│   │       └── TopicRepository.java             # createTopic/deleteTopic/exists/getPartitions
+│   │
+│   ├── application/service/                     # Application Layer
+│   │   ├── KafkaTestFacade.java                 # Единая точка входа; два конструктора:
+│   │   │                                        #   production (KafkaAdapterFactory)
+│   │   │                                        #   unit-test  (mock ports)
+│   │   ├── MessageConsumptionService.java
+│   │   ├── MessagePublishingService.java
+│   │   └── TopicManagementService.java
+│   │
+│   ├── infrastructure/                          # Infrastructure Layer
+│   │   ├── kafka/adapter/
+│   │   │   ├── KafkaAdapterFactory.java         # Единственная точка создания адаптеров
+│   │   │   ├── KafkaAdminAdapter.java           # implements TopicRepository + ConsumerGroupReader
+│   │   │   ├── KafkaConsumerAdapter.java        # implements MessageConsumer
+│   │   │   │                                    #   FIXED: consumeAll() — consecutive-empty threshold=3
+│   │   │   │                                    #   FIXED: isAssigned() — реальная проверка assignment
+│   │   │   │                                    #   FIXED: interrupt flag restored в catch(Exception)
+│   │   │   └── KafkaProducerAdapter.java        # implements MessagePublisher
+│   │   ├── api/aiven/
+│   │   │   ├── AivenApiController.java          # REST-клиент к Aiven Management API
+│   │   │   └── dto/
+│   │   │       ├── AivenTopicDeleteResponseDto.java
+│   │   │       └── AivenTopicListResponseDto.java
+│   │   ├── KafkaPropertiesBuilder.java          # SSL/TLS config builder
+│   │   └── KafkaTopicCleanupManager.java
+│   │
+│   ├── config/
+│   │   ├── ConfigFactory.java                   # Fail-fast validation, 4-уровневый приоритет
+│   │   └── KafkaConfig.java                     # Owner interface (40+ properties)
+│   │
+│   ├── metrics/
+│   │   ├── TestMetricsCollector.java            # ConcurrentHashMap + AtomicLong
+│   │   └── TestMetricsExtension.java            # JUnit5 Extension — per-class Store
+│   │
+│   ├── utils/
+│   │   ├── KafkaAwaitHelper.java                # Awaitility-based helpers
+│   │   │                                        #   FIXED: awaitConsumerReady() — poll()+isAssigned()
+│   │   └── RetryContext.java                    # Allure attachment helper
+│   │
+│   └── exceptions/
+│       ├── KafkaTestException.java              # Base: errorCategory + context map
+│       ├── ConfigurationException.java
+│       ├── KafkaConsumerException.java
+│       ├── KafkaProducerException.java
+│       ├── KafkaRebalanceException.java
+│       ├── KafkaTimeoutException.java
+│       ├── KafkaTopicManagementException.java
+│       ├── MessageNotFoundException.java
+│       └── TestDataException.java
 │
-└── test/java/tests/
-    ├── BaseTest.java                            # Жизненный цикл тестов
-    │
+└── main/resources/
+    ├── config/
+    │   ├── ci.properties
+    │   ├── default.properties
+    │   └── local.properties
+    └── logback.xml
+```
+
+```
+src/test/java/
+│
+├── qa/autotest/framework/                       # Unit Tests (91 тест-метод)
+│   ├── application/service/
+│   │   ├── KafkaTestFacadeTest.java             # 20 тестов (mock ports)
+│   │   ├── MessageConsumptionServiceTest.java   # 18 тестов
+│   │   ├── MessagePublishingServiceTest.java    # 13 тестов
+│   │   └── TopicManagementServiceTest.java      # 16 тестов
+│   ├── config/
+│   │   └── ConfigFactoryTest.java              # 14 тестов
+│   ├── domain/model/
+│   │   └── DomainModelTest.java                # 49 тестов
+│   ├── infrastructure/kafka/adapter/
+│   │   ├── InfrastructureAdapterPrivateMethodsTest.java  # 14 тестов (reflection)
+│   │   └── KafkaPropertiesBuilderTest.java     # 5 тестов
+│   ├── metrics/
+│   │   └── TestMetricsCollectorTest.java       # 17 тестов
+│   └── utils/
+│       └── RetryContextTest.java               # 10 тестов
+│
+└── tests/                                       # Integration Tests (66 тест-методов)
+    ├── BaseTest.java                            # @ExtendWith(TestMetricsExtension, AllureKafkaListener,
+    │                                            #             KafkaTestExecutionListener)
     ├── listeners/
-    │   ├── AllureKafkaListener.java             # Категоризация сбоев
+    │   ├── AllureKafkaListener.java             # TestWatcher: 7 категорий сбоев
     │   ├── GlobalCleanupListener.java
     │   └── KafkaTestExecutionListener.java
-    │
-    ├── consumer/ConsumerTests.java              # 12 тест-кейсов
-    ├── consumergroup/ConsumerGroupTests.java    #  1 тест-кейс
-    ├── dlq/DlqTests.java                        #  3 тест-кейса
-    ├── errorhandling/ErrorHandlingTests.java    #  5 тест-кейсов
-    ├── idempotence/IdempotenceTests.java        #  7 тест-кейсов
-    ├── offset/OffsetTests.java                  #  5 тест-кейсов
-    ├── ordering/OrderingTests.java              #  3 тест-кейса
-    ├── partitioning/PartitioningTests.java      #  5 тест-кейсов
-    ├── performance/PerformanceTests.java        #  4 тест-кейса
-    ├── producer/ProducerTests.java              # 12 тест-кейсов
-    └── transactions/TransactionsTests.java      #  9 тест-кейсов
+    ├── consumer/ConsumerTests.java              # 12 тестов
+    ├── consumergroup/ConsumerGroupTests.java    #  1 тест
+    ├── dlq/DlqTests.java                        #  3 теста
+    ├── errorhandling/ErrorHandlingTests.java    #  5 тестов
+    ├── idempotence/IdempotenceTests.java        #  7 тестов
+    ├── offset/OffsetTests.java                  #  5 тестов
+    ├── ordering/OrderingTests.java              #  3 теста
+    ├── partitioning/PartitioningTests.java      #  5 тестов
+    ├── performance/PerformanceTests.java        #  4 теста
+    ├── producer/ProducerTests.java              # 12 тестов
+    └── transactions/TransactionsTests.java      #  9 тестов
 ```
 
 Подробная документация: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
@@ -215,7 +244,9 @@ mvn allure:serve    # запуск в браузере
 
 ## Тест-сьюты
 
-| Тег | Класс | Кейсов | Описание |
+### Интеграционные тесты (66 тестов)
+
+| Тег | Класс | Тестов | Описание |
 |-----|-------|--------|----------|
 | `producer` | `ProducerTests` | 12 | Sync/async отправка, headers, acks=all, retry, batch, метрики |
 | `consumer` | `ConsumerTests` | 12 | earliest/latest, headers, seek, pause/resume, lag |
@@ -230,7 +261,22 @@ mvn allure:serve    # запуск в браузере
 | `consumer-group` | `ConsumerGroupTests` | 1 | Rebalance группы потребителей |
 | `smoke` | (несколько) | 7 | Быстрая проверка ключевой функциональности |
 
-**Итого: 66 тест-кейсов** (TC-001 — TC-049)
+### Unit-тесты (91 тест)
+
+| Класс | Тестов | Описание |
+|-------|--------|----------|
+| `DomainModelTest` | 49 | Все доменные модели и `KafkaErrorCategory` |
+| `KafkaTestFacadeTest` | 20 | Фасад с mock-портами |
+| `TestMetricsCollectorTest` | 17 | Потокобезопасность метрик |
+| `MessageConsumptionServiceTest` | 18 | consumeUntil / consumeAll / consumeExactly |
+| `TopicManagementServiceTest` | 16 | createTopic / DLQ / retry-топики |
+| `MessagePublishingServiceTest` | 13 | publish / batch / validation |
+| `InfrastructureAdapterPrivateMethodsTest` | 14 | private methods через reflection |
+| `ConfigFactoryTest` | 14 | Fail-fast validation, 4-уровневый приоритет |
+| `RetryContextTest` | 10 | Allure attachment helper |
+| `KafkaPropertiesBuilderTest` | 5 | SSL/TLS properties builder |
+
+**Итого: 157 тест-методов** (66 интеграционных + 91 unit)
 
 ---
 
@@ -309,12 +355,11 @@ KAFKA_BOOTSTRAP_SERVERS=... AIVEN_API_TOKEN=... docker-compose up
 
 ## CI/CD
 
-Пайплайн GitHub Actions запускается при каждом push и PR:
+Пайплайн GitHub Actions (`.github/workflows/`):
+- `test-all.yml` — полный прогон по планировщику в 4 AM UTC
+- `test-smoke.yml` — быстрая smoke-проверка
 
-1. Сборка и компиляция
-2. Запуск тест-сьютов
-3. Генерация Allure-отчёта
-4. Публикация на GitHub Pages
+Этапы: сборка → тесты → генерация Allure-отчёта → публикация на GitHub Pages.
 
 Необходимые GitHub Secrets: `KAFKA_BOOTSTRAP_SERVERS`, `KAFKA_SSL_TRUSTSTORE_PASSWORD`, `KAFKA_SSL_KEYSTORE_PASSWORD`, `KAFKA_SSL_KEY_PASSWORD`, `AIVEN_API_TOKEN`.
 
@@ -342,6 +387,7 @@ KAFKA_BOOTSTRAP_SERVERS=... AIVEN_API_TOKEN=... docker-compose up
 |-----------|--------|-----------|
 | `kafka-clients` | 3.6.1 | Producer, Consumer, AdminClient |
 | `junit-jupiter` | 5.10.1 | Тестовый фреймворк |
+| `mockito-core` | 5.11.0 | Mock-объекты в unit-тестах |
 | `assertj-core` | 3.24.2 | Fluent assertions |
 | `allure-junit5` | 2.25.0 | Allure-отчёты |
 | `allure-rest-assured` | 2.25.0 | Allure-фильтр для REST Assured |
@@ -352,6 +398,8 @@ KAFKA_BOOTSTRAP_SERVERS=... AIVEN_API_TOKEN=... docker-compose up
 | `jackson-databind` | 2.16.1 | JSON-сериализация |
 | `logback-classic` | 1.4.14 | Логирование |
 | `gson` | 2.10.1 | JSON в metrics/attachments |
+
+---
 
 ## License
 
