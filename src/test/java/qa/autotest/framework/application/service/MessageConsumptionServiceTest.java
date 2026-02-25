@@ -191,7 +191,7 @@ class MessageConsumptionServiceTest {
         Message target = message("target-key");
         when(consumer.poll(any()))
                 .thenReturn(ConsumeResult.success(List.of(message("wrong"))))  // 1-я попытка — мимо
-                .thenReturn(ConsumeResult.success(List.of(target)));            // 2-я — совпадение
+                .thenReturn(ConsumeResult.success(List.of(target)));                // 2-я — совпадение
 
         Optional<Message> result = service.consumeUntil(
                 msg -> "target-key".equals(msg.getKey()),

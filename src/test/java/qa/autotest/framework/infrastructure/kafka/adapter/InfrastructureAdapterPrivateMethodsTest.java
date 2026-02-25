@@ -1,6 +1,5 @@
 package qa.autotest.framework.infrastructure.kafka.adapter;
 
-import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.ConsumerGroupState;
 import org.apache.kafka.common.header.Header;
@@ -13,7 +12,6 @@ import qa.autotest.framework.domain.model.Topic;
 
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.*;
@@ -24,12 +22,12 @@ import static org.assertj.core.api.Assertions.*;
  * 1. KafkaProducerAdapter.toProducerRecord(Message) — маппинг доменного Message
  * в Kafka ProducerRecord. Тестируется через reflection, т.к. метод private.
  * <p>
- * 2. KafkaAdminAdapter.mapGroupState(ConsumerGroupState) — маппинг Kafka enum
+ * 2. KafkaConsumerGroupAdapter.mapGroupState(ConsumerGroupState) — маппинг Kafka enum
  * в доменный GroupState. Тестируется через reflection.
- * Метод перемещён из KafkaConsumerAdapter в KafkaAdminAdapter при рефакторинге
- * (извлечение ConsumerGroupReader порта).
+ * Метод перемещён из KafkaAdminAdapter в KafkaConsumerGroupAdapter при ISP-рефакторинге
+ * (разделение TopicRepository и ConsumerGroupReader на два независимых адаптера).
  * <p>
- * Альтернатива рефлекции: сделать методы package-private и добавить
+ * Альтернатива рефлексии: сделать методы package-private и добавить
  * тест в тот же пакет. Рефлексия выбрана здесь чтобы не менять
  * сигнатуры production-кода.
  */
@@ -228,20 +226,18 @@ class InfrastructureAdapterPrivateMethodsTest {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // KafkaAdminAdapter.mapGroupState
+    // KafkaConsumerGroupAdapter.mapGroupState
     // ═══════════════════════════════════════════════════════════════════════
 
     @Nested
-    @DisplayName("KafkaAdminAdapter.mapGroupState")
+    @DisplayName("KafkaConsumerGroupAdapter.mapGroupState")
     class MapGroupStateTests {
 
         private Method mapGroupState;
 
         @BeforeEach
         void setUp() throws Exception {
-            // После рефакторинга (извлечение ConsumerGroupReader) метод mapGroupState
-            // перемещён из KafkaConsumerAdapter в KafkaAdminAdapter
-            mapGroupState = KafkaAdminAdapter.class
+            mapGroupState = KafkaConsumerGroupAdapter.class
                     .getDeclaredMethod("mapGroupState", ConsumerGroupState.class);
             mapGroupState.setAccessible(true);
         }
@@ -252,7 +248,7 @@ class InfrastructureAdapterPrivateMethodsTest {
             org.mockito.Mockito.when(config.kafkaBootstrapServers()).thenReturn("localhost:9092");
             org.mockito.Mockito.when(config.securityProtocol()).thenReturn("PLAINTEXT");
 
-            KafkaAdminAdapter adapter = new KafkaAdminAdapter(config);
+            KafkaConsumerGroupAdapter adapter = new KafkaConsumerGroupAdapter(config);
             return (ConsumerGroup.GroupState) mapGroupState.invoke(adapter, kafkaState);
         }
 
