@@ -3,7 +3,7 @@ package qa.autotest.framework.application.service;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import qa.autotest.framework.config.KafkaConfig;
-import qa.autotest.framework.exceptions.MessageNotFoundException;
+import qa.autotest.framework.domain.exceptions.MessageNotFoundException;
 import qa.autotest.framework.domain.model.*;
 import qa.autotest.framework.domain.port.ConsumerGroupReader;
 import qa.autotest.framework.domain.port.MessageConsumer;

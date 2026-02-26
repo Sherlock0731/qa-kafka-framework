@@ -5,7 +5,7 @@ import io.qameta.allure.model.Status;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.api.extension.TestWatcher;
-import qa.autotest.framework.exceptions.KafkaTestException;
+import qa.autotest.framework.domain.exceptions.KafkaTestException;
 import qa.autotest.framework.metrics.TestMetricsCollector;
 import qa.autotest.framework.metrics.TestMetricsExtension;
 

@@ -1,7 +1,7 @@
 package qa.autotest.framework.config;
 
 import org.aeonbits.owner.Config;
-import qa.autotest.framework.exceptions.ConfigurationException;
+import qa.autotest.framework.domain.exceptions.ConfigurationException;
 
 /**
  * Configuration interface for Kafka test environment properties

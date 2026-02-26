@@ -1,7 +1,7 @@
 package qa.autotest.framework.application.service;
 
 import lombok.extern.slf4j.Slf4j;
-import qa.autotest.framework.exceptions.MessageNotFoundException;
+import qa.autotest.framework.domain.exceptions.MessageNotFoundException;
 import qa.autotest.framework.domain.model.ConsumeResult;
 import qa.autotest.framework.domain.model.ConsumerGroup;
 import qa.autotest.framework.domain.model.Message;

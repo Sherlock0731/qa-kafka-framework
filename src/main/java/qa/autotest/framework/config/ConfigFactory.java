@@ -1,7 +1,7 @@
 package qa.autotest.framework.config;
 
 import lombok.extern.slf4j.Slf4j;
-import qa.autotest.framework.exceptions.ConfigurationException;
+import qa.autotest.framework.domain.exceptions.ConfigurationException;
 
 import java.util.ArrayList;
 import java.util.List;

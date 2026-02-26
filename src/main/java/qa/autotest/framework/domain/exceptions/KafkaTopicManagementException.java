@@ -1,4 +1,4 @@
-package qa.autotest.framework.exceptions;
+package qa.autotest.framework.domain.exceptions;
 
 /**
  * Exception thrown when topic management operation fails
