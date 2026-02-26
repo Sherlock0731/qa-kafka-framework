@@ -9,20 +9,31 @@ import qa.autotest.framework.infrastructure.KafkaTopicCleanupManager;
 
 /**
  * Global Test Suite Cleanup Listener
- * Executes after all tests are completed to cleanup remaining test topics
  * <p>
- * This listener is registered via ServiceLoader mechanism:
- * - Create file: src/test/resources/META-INF/services/org.junit.platform.launcher.TestExecutionListener
- * - Add this class name to the file
+ * Executes before and after the full test suite to log diagnostics and delete
+ * any remaining test topics.
+ * <p>
+ * Registered via the ServiceLoader mechanism:
+ * {@code src/test/resources/META-INF/services/org.junit.platform.launcher.TestExecutionListener}
+ *
+ * <h3>DIP fix</h3>
+ * Previously this class relied on {@code KafkaTopicCleanupManager}'s internal
+ * {@code new AivenApiController(config)} call, which chained two concrete
+ * dependencies.  Now {@link KafkaTopicCleanupManager#create(KafkaConfig)} acts
+ * as the single composition root: this listener calls the factory and receives
+ * a manager whose {@code CleanupPort} is already wired — with no knowledge of
+ * {@code AivenApiController} here.
  */
 @Slf4j
 public class GlobalCleanupListener implements TestExecutionListener {
 
     private static final KafkaConfig CONFIG = ConfigFactory.getConfig();
-    private static final KafkaTopicCleanupManager CLEANUP_MANAGER = new KafkaTopicCleanupManager(CONFIG);
+    private static final KafkaTopicCleanupManager CLEANUP_MANAGER = KafkaTopicCleanupManager.create(CONFIG);
+
+    // ── TestExecutionListener ─────────────────────────────────────────────
 
     /**
-     * Called before any tests are executed
+     * Called before any tests are executed.
      */
     @Override
     public void testPlanExecutionStarted(TestPlan testPlan) {
@@ -35,14 +46,12 @@ public class GlobalCleanupListener implements TestExecutionListener {
         log.info("Global Aiven API cleanup: {}",
                 CONFIG.cleanupViaAivenApiEnabled() ? "ENABLED" : "DISABLED (test.cleanup.aiven.api.enabled=false)");
 
-        // Log Aiven API configuration status
-        String configStatus = CLEANUP_MANAGER.getConfigurationStatus();
-        log.info("Aiven API Configuration:\n{}", configStatus);
+        log.info("Aiven API Configuration:\n{}", CLEANUP_MANAGER.getConfigurationStatus());
     }
 
     /**
-     * Called after all tests are executed
-     * This is where we perform global cleanup of all test topics
+     * Called after all tests are executed.
+     * Performs global cleanup of all test topics via the injected {@link qa.autotest.framework.domain.port.CleanupPort}.
      */
     @Override
     public void testPlanExecutionFinished(TestPlan testPlan) {
@@ -53,7 +62,6 @@ public class GlobalCleanupListener implements TestExecutionListener {
         try {
             log.info("Starting global cleanup of test topics via Aiven API...");
 
-            // Cleanup all test topics using Aiven API
             int deletedCount = CLEANUP_MANAGER.cleanupAllTestTopics();
 
             if (deletedCount > 0) {

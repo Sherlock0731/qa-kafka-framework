@@ -8,8 +8,9 @@ import io.restassured.http.ContentType;
 import io.restassured.response.Response;
 import io.restassured.specification.RequestSpecification;
 import lombok.extern.slf4j.Slf4j;
-import qa.autotest.framework.infrastructure.api.aiven.dto.AivenTopicListResponseDto;
 import qa.autotest.framework.config.KafkaConfig;
+import qa.autotest.framework.domain.port.CleanupPort;
+import qa.autotest.framework.infrastructure.api.aiven.dto.AivenTopicListResponseDto;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -17,13 +18,28 @@ import java.util.stream.Collectors;
 import static io.restassured.RestAssured.given;
 
 /**
- * Aiven API Controller
- * Handles communication with Aiven REST API for Kafka topic management
+ * Infrastructure Adapter: AivenApiController
+ * <p>
+ * Implements {@link CleanupPort} — the outbound port for remote topic cleanup —
+ * by communicating with the Aiven REST API.
+ * <p>
+ * <h3>DIP fix</h3>
+ * Previously this class had no port abstraction: callers depended directly on
+ * the concrete class.  It now implements {@link CleanupPort} so that
+ * {@link qa.autotest.framework.infrastructure.KafkaTopicCleanupManager} and
+ * any future caller can depend on the interface rather than the implementation.
+ * <p>
+ * <h3>Thread-safety note</h3>
+ * The {@code RequestSpecification} is built once in the constructor and stored
+ * in a final field.  The static field {@code RestAssured.baseURI} is
+ * intentionally <em>not</em> mutated here: doing so would introduce a race
+ * condition when multiple instances are constructed concurrently in parallel
+ * test threads.
  * <p>
  * API Documentation: https://api.aiven.io/doc/
  */
 @Slf4j
-public class AivenApiController {
+public class AivenApiController implements CleanupPort {
 
     private final KafkaConfig config;
     private final RequestSpecification requestSpec;
@@ -33,16 +49,8 @@ public class AivenApiController {
         this.requestSpec = createRequestSpecification();
     }
 
-    /**
-     * Creates REST Assured request specification with authentication.
-     * <p>
-     * Base URI is set exclusively via {@link RequestSpecBuilder#setBaseUri} so that
-     * every instance carries its own self-contained spec. The static field
-     * {@code RestAssured.baseURI} is intentionally <em>not</em> assigned here:
-     * mutating that shared global state would introduce a race condition when
-     * multiple {@code AivenApiController} instances are constructed concurrently
-     * in parallel test threads.
-     */
+    // ── RequestSpec factory ───────────────────────────────────────────────
+
     private RequestSpecification createRequestSpecification() {
         return new RequestSpecBuilder()
                 .setBaseUri(config.aivenApiUrl())
@@ -53,13 +61,14 @@ public class AivenApiController {
                 .build();
     }
 
+    // ── CleanupPort ───────────────────────────────────────────────────────
+
     /**
-     * Get list of all Kafka topics from Aiven
+     * {@inheritDoc}
      * <p>
      * GET /v1/project/{project}/service/{service}/topic
-     *
-     * @return List of topic names
      */
+    @Override
     public List<String> getTopicList() {
         log.info("Getting topic list from Aiven API for project: {}, service: {}",
                 config.aivenProjectName(), config.aivenServiceName());
@@ -76,10 +85,10 @@ public class AivenApiController {
                     .response();
 
             if (response.getStatusCode() == 200) {
-                AivenTopicListResponseDto topicListResponse = response.as(AivenTopicListResponseDto.class);
+                AivenTopicListResponseDto body = response.as(AivenTopicListResponseDto.class);
 
-                if (topicListResponse.getTopics() != null) {
-                    List<String> topicNames = topicListResponse.getTopics().stream()
+                if (body.getTopics() != null) {
+                    List<String> topicNames = body.getTopics().stream()
                             .map(AivenTopicListResponseDto.AivenTopicDto::getTopicName)
                             .collect(Collectors.toList());
 
@@ -99,13 +108,13 @@ public class AivenApiController {
     }
 
     /**
-     * Delete a Kafka topic via Aiven API
+     * {@inheritDoc}
      * <p>
      * DELETE /v1/project/{project}/service/{service}/topic/{topic_name}
-     *
-     * @param topicName Name of the topic to delete
-     * @return True if deletion was successful
+     * <p>
+     * HTTP 404 is treated as success — topic was already absent.
      */
+    @Override
     public boolean deleteTopic(String topicName) {
         log.info("Deleting topic '{}' via Aiven API", topicName);
 
@@ -121,13 +130,11 @@ public class AivenApiController {
                     .extract()
                     .response();
 
-            // 200 OK means successful deletion
             if (response.getStatusCode() == 200) {
                 log.info("Successfully deleted topic '{}' via Aiven API", topicName);
                 return true;
             }
 
-            // 404 means topic doesn't exist (which is fine for cleanup)
             if (response.getStatusCode() == 404) {
                 log.info("Topic '{}' not found in Aiven (already deleted or doesn't exist)", topicName);
                 return true;
@@ -144,11 +151,12 @@ public class AivenApiController {
     }
 
     /**
-     * Delete multiple Kafka topics via Aiven API
-     *
-     * @param topicNames List of topic names to delete
-     * @return Number of successfully deleted topics
+     * {@inheritDoc}
+     * <p>
+     * Iterates over {@code topicNames} and calls {@link #deleteTopic} for each.
+     * Failures are logged but do not abort the remaining deletions.
      */
+    @Override
     public int deleteTopics(List<String> topicNames) {
         log.info("Deleting {} topics via Aiven API", topicNames.size());
 
@@ -164,9 +172,30 @@ public class AivenApiController {
     }
 
     /**
-     * Delete all test topics (topics with test prefix) via Aiven API
+     * {@inheritDoc}
+     * <p>
+     * Implemented by calling {@link #getTopicList()} — a successful (non-throwing)
+     * response from the broker confirms reachability and valid credentials.
+     */
+    @Override
+    public boolean verifyConnection() {
+        try {
+            List<String> topics = getTopicList();
+            log.info("Aiven API connection verified successfully. Found {} topics", topics.size());
+            return true;
+        } catch (Exception e) {
+            log.error("Failed to verify Aiven API connection: {}", e.getMessage(), e);
+            return false;
+        }
+    }
+
+    // ── additional operations not part of CleanupPort ─────────────────────
+
+    /**
+     * Deletes all topics whose names start with the configured test-topic prefix.
+     * Convenience method used directly by {@code KafkaTopicCleanupManager}.
      *
-     * @return Number of successfully deleted topics
+     * @return number of topics deleted
      */
     public int deleteAllTestTopics() {
         log.info("Starting cleanup of all test topics via Aiven API");
@@ -174,7 +203,6 @@ public class AivenApiController {
         List<String> allTopics = getTopicList();
         String testTopicPrefix = config.testTopicPrefix();
 
-        // Filter only test topics
         List<String> testTopics = allTopics.stream()
                 .filter(topic -> topic.startsWith(testTopicPrefix))
                 .collect(Collectors.toList());
@@ -186,21 +214,5 @@ public class AivenApiController {
 
         log.info("Found {} test topics to delete: {}", testTopics.size(), testTopics);
         return deleteTopics(testTopics);
-    }
-
-    /**
-     * Check if Aiven API is accessible and configured correctly
-     *
-     * @return True if API is accessible
-     */
-    public boolean verifyApiConnection() {
-        try {
-            List<String> topics = getTopicList();
-            log.info("Aiven API connection verified successfully. Found {} topics", topics.size());
-            return true;
-        } catch (Exception e) {
-            log.error("Failed to verify Aiven API connection: {}", e.getMessage(), e);
-            return false;
-        }
     }
 }
