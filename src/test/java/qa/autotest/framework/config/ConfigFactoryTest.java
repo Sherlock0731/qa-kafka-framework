@@ -24,6 +24,7 @@ import static org.mockito.Mockito.*;
  * - повторный вызов getConfig() возвращает тот же singleton
  * - resetConfig() обнуляет singleton
  */
+@Tag("unit")
 @DisplayName("ConfigFactory — fail-fast validation")
 class ConfigFactoryTest {
 

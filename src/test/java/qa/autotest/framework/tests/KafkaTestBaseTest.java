@@ -6,6 +6,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import qa.autotest.framework.application.service.KafkaTestFacade;
 import tests.BaseTest;
+import tests.KafkaTestBase;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -32,6 +33,7 @@ import static org.mockito.Mockito.*;
  *       логика {@code closeAll()} тестируется в {@code KafkaTestFacadeTest}.</li>
  * </ul>
  */
+@Tag("unit")
 @DisplayName("KafkaTestBase")
 @ExtendWith(MockitoExtension.class)
 class KafkaTestBaseTest {
@@ -41,9 +43,7 @@ class KafkaTestBaseTest {
      * Позволяет тестировать защищённые члены базового класса напрямую.
      */
     static class Stub extends BaseTest {
-        /**
-         * Инжектирует mock-фасад в защищённое поле базового класса.
-         */
+        /** Инжектирует mock-фасад в защищённое поле базового класса. */
         void injectFacade(KafkaTestFacade f) {
             this.kafka = f;
         }
@@ -194,8 +194,7 @@ class KafkaTestBaseTest {
             for (String t : new java.util.ArrayList<>(stub.createdTopics)) {
                 try {
                     mockKafka.deleteTopic(t);
-                } catch (Exception ignored) {
-                }
+                } catch (Exception ignored) { }
             }
 
             // Все три попытки были сделаны

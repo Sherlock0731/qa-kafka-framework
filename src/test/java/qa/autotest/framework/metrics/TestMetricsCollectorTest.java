@@ -3,8 +3,6 @@ package qa.autotest.framework.metrics;
 import com.google.gson.Gson;
 import org.junit.jupiter.api.*;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
 
@@ -27,6 +25,7 @@ import static org.assertj.core.api.Assertions.*;
  * - конкурентность: 10 потоков × 100 инкрементов без потерь
  * - изоляция экземпляров: два коллектора не влияют друг на друга
  */
+@Tag("unit")
 @DisplayName("TestMetricsCollector")
 class TestMetricsCollectorTest {
 

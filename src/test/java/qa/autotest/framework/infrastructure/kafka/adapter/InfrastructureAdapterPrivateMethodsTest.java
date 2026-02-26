@@ -31,6 +31,7 @@ import static org.assertj.core.api.Assertions.*;
  * тест в тот же пакет. Рефлексия выбрана здесь чтобы не менять
  * сигнатуры production-кода.
  */
+@Tag("unit")
 @DisplayName("Infrastructure Adapter — private methods")
 class InfrastructureAdapterPrivateMethodsTest {
 

@@ -29,6 +29,7 @@ import static org.mockito.Mockito.*;
  * - topicExists делегирует
  * - createTopic бросает IllegalArgumentException при невалидном топике (до вызова репозитория)
  */
+@Tag("unit")
 @DisplayName("TopicManagementService")
 @ExtendWith(MockitoExtension.class)
 class TopicManagementServiceTest {

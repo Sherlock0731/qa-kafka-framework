@@ -47,6 +47,7 @@ import static org.mockito.Mockito.*;
  * подмены внутренних адаптеров на mock-объекты после создания бандла
  * (см. {@code withMockedAdapters()}).
  */
+@Tag("unit")
 @DisplayName("KafkaAdapterFactory")
 @ExtendWith(MockitoExtension.class)
 class KafkaAdapterFactoryTest {

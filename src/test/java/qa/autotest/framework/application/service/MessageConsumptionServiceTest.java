@@ -34,6 +34,7 @@ import static org.mockito.Mockito.*;
  * - seekToBeginning / seekToEnd / commitOffsets — делегирование
  * - close() делегирует
  */
+@Tag("unit")
 @DisplayName("MessageConsumptionService")
 @ExtendWith(MockitoExtension.class)
 class MessageConsumptionServiceTest {

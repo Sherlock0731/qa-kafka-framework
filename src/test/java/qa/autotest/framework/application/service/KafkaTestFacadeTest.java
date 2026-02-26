@@ -31,6 +31,7 @@ import static org.mockito.Mockito.*;
  * - getMetrics() в unit-test режиме возвращает "N/A"
  * - consumeUntil / consumeUntilOrThrow — делегирование и Optional/throw семантика
  */
+@Tag("unit")
 @DisplayName("KafkaTestFacade — unit-test constructor (port mocks)")
 @ExtendWith(MockitoExtension.class)
 class KafkaTestFacadeTest {

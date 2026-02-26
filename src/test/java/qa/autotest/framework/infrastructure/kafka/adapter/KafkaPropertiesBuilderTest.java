@@ -27,6 +27,7 @@ import static org.mockito.Mockito.*;
  * - isSecureProtocol: true для SSL/SASL_SSL, false для остальных
  * - SSL-ключи не перезаписывают уже существующие значения bootstrap.servers
  */
+@Tag("unit")
 @DisplayName("KafkaPropertiesBuilder")
 class KafkaPropertiesBuilderTest {
 

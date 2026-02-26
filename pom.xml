@@ -289,10 +289,11 @@
                             <includes>
                                 <include>${integration.test.pattern}</include>
                             </includes>
+                            <!-- File-pattern excludes: исключаем пакет юнит-тестов из сканирования -->
                             <excludes>
                                 <exclude>${unit.test.pattern}</exclude>
-                                <exclude>qa/autotest/framework/tests/**/*Test.class</exclude>
                             </excludes>
+                            <excludedGroups>unit</excludedGroups>
                             <groups>${test.groups}</groups>
                             <reportsDirectory>${project.build.directory}/surefire-reports/integration</reportsDirectory>
                             <parallel>none</parallel>

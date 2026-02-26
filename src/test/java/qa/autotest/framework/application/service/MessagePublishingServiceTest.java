@@ -2,7 +2,6 @@ package qa.autotest.framework.application.service;
 
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import qa.autotest.framework.domain.model.*;
@@ -12,7 +11,6 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
@@ -30,6 +28,7 @@ import static org.mockito.Mockito.*;
  * - flush() делегирует
  * - close() делегирует
  */
+@Tag("unit")
 @DisplayName("MessagePublishingService")
 @ExtendWith(MockitoExtension.class)
 class MessagePublishingServiceTest {

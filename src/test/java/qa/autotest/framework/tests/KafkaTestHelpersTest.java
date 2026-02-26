@@ -37,6 +37,7 @@ import static org.mockito.Mockito.*;
  *   <li>{@code createNewFacade} — регистрирует в ALL_FACADES через registerFacade()</li>
  * </ul>
  */
+@Tag("unit")
 @DisplayName("KafkaTestHelpers")
 @ExtendWith(MockitoExtension.class)
 class KafkaTestHelpersTest {
@@ -48,9 +49,7 @@ class KafkaTestHelpersTest {
      */
     static class Stub extends KafkaTestHelpers {
 
-        /**
-         * Инжектируем mock-фасад напрямую в protected поле базового класса.
-         */
+        /** Инжектируем mock-фасад напрямую в protected поле базового класса. */
         void injectFacade(KafkaTestFacade mockFacade) {
             this.kafka = mockFacade;
         }

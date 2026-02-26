@@ -6,9 +6,7 @@ import qa.autotest.framework.domain.model.*;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.*;
-
 import tests.KafkaAssertions;
-
 import static tests.KafkaAssertions.*;
 
 /**
@@ -27,6 +25,7 @@ import static tests.KafkaAssertions.*;
  *   <li>{@code assertMessageHasHeader} / {@code assertMessageHeaderValue}</li>
  * </ul>
  */
+@Tag("unit")
 @DisplayName("KafkaAssertions")
 class KafkaAssertionsTest {
 

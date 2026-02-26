@@ -14,6 +14,7 @@ import static org.assertj.core.api.Assertions.*;
  * - getDuration(): до mark* — время от startTime до now; после mark* — фиксированный интервал
  * - начальное состояние: success=false, lastError=null
  */
+@Tag("unit")
 @DisplayName("RetryContext")
 class RetryContextTest {
 
