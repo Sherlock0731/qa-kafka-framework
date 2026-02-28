@@ -46,7 +46,6 @@ class MessageConsumptionServiceTest {
 
     private MessageConsumptionService service;
 
-    // ── fixtures ──────────────────────────────────────────────────────────
     private static final String TOPIC_NAME = "qa-test-consume";
 
     private static Topic topic() {

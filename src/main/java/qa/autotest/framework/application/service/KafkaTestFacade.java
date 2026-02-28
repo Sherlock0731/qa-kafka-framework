@@ -47,25 +47,15 @@ import java.util.stream.Collectors;
 @Getter
 public class KafkaTestFacade implements AutoCloseable {
 
-    // ── Application services (depend on port interfaces only) ─────────────────
-
     private final MessagePublishingService publishingService;
     private final MessageConsumptionService consumptionService;
     private final TopicManagementService topicManagementService;
 
-    // ── Metadata ──────────────────────────────────────────────────────────────
-
     private final KafkaConfig config;
     private final String consumerGroupId;
 
-    // ── Lifecycle & metrics — stored as lambdas, no concrete adapter types ────
-
     private final Runnable closeAllAction;
     private final Supplier<String> metricsSupplier;
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // Convenience constructor — delegates to KafkaAdapterFactory
-    // ═══════════════════════════════════════════════════════════════════════════
 
     /**
      * Production / integration-test constructor.

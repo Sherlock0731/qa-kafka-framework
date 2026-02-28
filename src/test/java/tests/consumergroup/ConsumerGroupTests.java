@@ -65,8 +65,6 @@ public class ConsumerGroupTests extends BaseTest {
         log.info("TC-037: Rebalance complete, new consumer ready");
     }
 
-    // ── helper ────────────────────────────────────────────────────────────────
-
     private List<Message> buildMessages(String topicName, String keyPrefix, int count) {
         List<Message> list = new ArrayList<>();
         for (int i = 0; i < count; i++) {

@@ -66,8 +66,6 @@ class KafkaTestHelpersTest {
         helper.injectFacade(mockKafka);
     }
 
-    // ── fixtures ──────────────────────────────────────────────────────────────
-
     private static final String TOPIC = "qa-test-orders";
 
     private static Message msg(String topic) {

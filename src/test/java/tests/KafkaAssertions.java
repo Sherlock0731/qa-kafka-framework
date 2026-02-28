@@ -46,8 +46,6 @@ public final class KafkaAssertions {
         throw new UnsupportedOperationException("Utility class — use static methods");
     }
 
-    // ── PublishResult ─────────────────────────────────────────────────────────
-
     /**
      * Проверяет, что публикация завершилась успешно.
      *
@@ -81,8 +79,6 @@ public final class KafkaAssertions {
                 result.isRetryable(),
                 "Expected retryable error, got: " + result.getErrorMessage());
     }
-
-    // ── ConsumeResult ─────────────────────────────────────────────────────────
 
     /**
      * Проверяет, что потребление завершилось успешно.
@@ -126,8 +122,6 @@ public final class KafkaAssertions {
                 result.hasMessages(),
                 "Expected at least one message, but result is empty");
     }
-
-    // ── Message ───────────────────────────────────────────────────────────────
 
     /**
      * Проверяет содержимое (payload) сообщения.

@@ -55,8 +55,6 @@ public class ConfigurationException extends RuntimeException {
         return missingProperties;
     }
 
-    // ── Private ────────────────────────────────────────────────────────────────
-
     private static String buildMessage(List<String> missing) {
         StringBuilder sb = new StringBuilder();
         sb.append("Framework startup aborted — ")

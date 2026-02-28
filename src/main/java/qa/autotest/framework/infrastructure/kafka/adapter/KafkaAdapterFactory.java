@@ -54,8 +54,6 @@ public final class KafkaAdapterFactory {
         return new KafkaAdapters(producer, consumer, adminAdapter, consumerGroupAdapter, groupId);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-
     /**
      * Immutable bundle produced by {@link KafkaAdapterFactory#create}.
      * <p>

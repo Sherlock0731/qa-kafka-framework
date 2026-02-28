@@ -34,8 +34,6 @@ import org.apache.kafka.common.errors.TimeoutException;
  */
 public enum KafkaErrorCategory {
 
-    // ── Shared — both produce and consume ─────────────────────────────────────
-
     /** Underlying TCP/IP or broker connection failed. Transient; retryable. */
     NETWORK_ERROR(true, "Network error"),
 
@@ -59,8 +57,6 @@ public enum KafkaErrorCategory {
 
     /** Catch-all for errors that do not match any known category. Retryable as a precaution. */
     UNKNOWN_ERROR(true, "Unknown error"),
-
-    // ── Produce-specific ──────────────────────────────────────────────────────
 
     /**
      * Message payload could not be serialized to bytes.
@@ -86,8 +82,6 @@ public enum KafkaErrorCategory {
      */
     BUFFER_EXHAUSTED(true, "Producer buffer exhausted"),
 
-    // ── Consume-specific ──────────────────────────────────────────────────────
-
     /**
      * Consumed bytes could not be deserialized to the target type.
      * Permanent data-shape or schema-mismatch issue; not retryable.
@@ -108,8 +102,6 @@ public enum KafkaErrorCategory {
      */
     OFFSET_OUT_OF_RANGE(false, "Offset out of range");
 
-    // ── Fields ────────────────────────────────────────────────────────────────
-
     private final boolean retryable;
     private final String displayName;
 
@@ -117,8 +109,6 @@ public enum KafkaErrorCategory {
         this.retryable = retryable;
         this.displayName = displayName;
     }
-
-    // ── Accessors ──────────────────────────────────────────────────────────────
 
     /**
      * Returns {@code true} when the failure is transient and the operation
@@ -136,8 +126,6 @@ public enum KafkaErrorCategory {
     public String getDisplayName() {
         return displayName;
     }
-
-    // ── Factory methods ────────────────────────────────────────────────────────
 
     /**
      * Maps a produce-side exception to the closest {@link KafkaErrorCategory}.

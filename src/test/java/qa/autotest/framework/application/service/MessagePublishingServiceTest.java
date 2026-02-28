@@ -38,7 +38,6 @@ class MessagePublishingServiceTest {
 
     private MessagePublishingService service;
 
-    // ── fixtures ──────────────────────────────────────────────────────────
     private static final String TOPIC_NAME = "qa-test-publish";
 
     private static Message validMessage() {

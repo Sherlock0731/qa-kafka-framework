@@ -44,8 +44,6 @@ public class KafkaAwaitHelper {
      */
     private static final Duration INFRA_INTERVAL = Duration.ofMillis(300);
 
-    // ── Consumer readiness ────────────────────────────────────────────────────
-
     /**
      * Subscribes to a topic, then waits until the consumer has joined the
      * consumer group <strong>and</strong> the group coordinator has assigned
@@ -110,8 +108,6 @@ public class KafkaAwaitHelper {
         log.debug("Consumer ready on topic '{}': partitions assigned", topicName);
     }
 
-    // ── Publish propagation ───────────────────────────────────────────────────
-
     /**
      * Flushes the producer, then waits until Kafka has confirmed the topic
      * is accessible (topic exists check — admin client, any thread is fine).
@@ -140,8 +136,6 @@ public class KafkaAwaitHelper {
 
         log.debug("Propagation done for topic: {}", topicName);
     }
-
-    // ── Message consumption ───────────────────────────────────────────────────
 
     /**
      * Subscribes, seeks to beginning, then polls in a loop (main thread)
@@ -185,8 +179,6 @@ public class KafkaAwaitHelper {
         log.debug("Awaiting {} new messages from current position", expectedCount);
         return pollUntilCollected(kafka, expectedCount, timeoutSec);
     }
-
-    // ── Rebalance ─────────────────────────────────────────────────────────────
 
     /**
      * After closing a consumer and creating a new one, waits for the new
@@ -269,8 +261,6 @@ public class KafkaAwaitHelper {
 
         log.info("Rebalance complete on topic '{}': partitions assigned, broker state=STABLE", topicName);
     }
-
-    // ── Internal helpers ──────────────────────────────────────────────────────
 
     /**
      * Polls in a tight loop in the calling thread until expectedCount messages

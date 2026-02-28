@@ -14,37 +14,43 @@ import java.util.*;
 
 /**
  * KafkaTestBase — Ответственность: жизненный цикл теста.
- * <p>
- * Единственная задача: инициализировать {@link KafkaTestFacade} перед каждым тестом,
- * закрыть ресурсы после него и гарантировать глобальную очистку всех адаптеров
- * из всех потоков по завершении класса.
+ *
+ * <h3>MDC</h3>
+ * MDC заполняется в {@link KafkaTestExecutionListener#beforeEach} и очищается
+ * в {@link KafkaTestExecutionListener#afterEach}.  Все последующие вызовы
+ * {@code log.*} в этом классе автоматически несут поля
+ * {@code test.id}, {@code test.class}, {@code test.method}, {@code test.thread}
+ * в каждой строке лога — явно выводить их через {@code log.info("Thread {}", ...)}
+ * больше не нужно.
+ *
+ * <h3>Параллельный запуск</h3>
+ * SLF4J MDC хранит значения в {@link ThreadLocal}: каждый поток видит только
+ * свой контекст.  Атрибуция лога к тесту работает без дополнительной синхронизации.
+ *
+ * <h3>Порядок Extensions в @ExtendWith</h3>
+ * {@code KafkaTestExecutionListener} стоит первым — его {@code beforeEach}
+ * вызывается раньше {@code setUp()}, поэтому MDC уже заполнен к моменту
+ * первого {@code log.*} в этом классе.  {@code afterEach} вызывается после
+ * {@code tearDown()}, поэтому MDC ещё присутствует во время cleanup.
  *
  * <h3>Иерархия наследования</h3>
  * <pre>
- *   KafkaTestBase          ← lifecycle (@BeforeAll/Each, @AfterEach/All)
+ *   KafkaTestBase      ← lifecycle (@BeforeAll/Each, @AfterEach/All) + MDC
  *       ↑
- *   KafkaTestHelpers       ← domain helpers (createTopic, publish, consume)
+ *   KafkaTestHelpers   ← domain helpers (createTopic, publish, consume)
  *       ↑
- *   BaseTest               ← точка входа для всех тест-классов
+ *   BaseTest           ← точка входа для всех тест-классов
  * </pre>
- *
- * <h3>WeakHashMap + ALL_FACADES</h3>
- * Используется WeakHashMap-backed set: если локальная переменная {@code kafka}
- * обнулилась после теста, GC может собрать facade до {@code @AfterAll}, не допуская
- * накопления мёртвых ссылок при большом числе тестов.
- * {@code @AfterAll} — страховочный слой: явно закрывает все живые facades.
  */
 @Slf4j
 @ExtendWith({
+        KafkaTestExecutionListener.class,  // ← FIRST: populateMdc() до любых log.*
         TestMetricsExtension.class,
-        AllureKafkaListener.class,
-        KafkaTestExecutionListener.class
+        AllureKafkaListener.class
 })
 public abstract class KafkaTestBase {
 
-    /**
-     * Единственная точка доступа к конфигурации.
-     */
+    /** Единственная точка доступа к конфигурации. */
     public static final KafkaConfig CONFIG = ConfigFactory.getConfig();
 
     /**
@@ -54,24 +60,14 @@ public abstract class KafkaTestBase {
     private static final Set<KafkaTestFacade> ALL_FACADES =
             Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<>()));
 
-    /**
-     * Facade текущего теста. Инициализируется в {@code @BeforeEach},
-     * закрывается в {@code @AfterEach}.
-     */
+    /** Facade текущего теста. Инициализируется в {@code @BeforeEach}. */
     public KafkaTestFacade kafka;
 
-    /**
-     * Имена топиков, созданных в рамках текущего теста.
-     * Очищаются в {@code @AfterEach}.
-     */
+    /** Имена топиков, созданных в рамках текущего теста. Очищаются в {@code @AfterEach}. */
     public final List<String> createdTopics = new ArrayList<>();
 
-    /**
-     * Время начала теста (мс). Используется в {@code @AfterEach} для логирования длительности.
-     */
+    /** Время начала теста (мс). */
     public long testStartTime;
-
-    // ── @BeforeAll ────────────────────────────────────────────────────────────
 
     @BeforeAll
     static void initFramework() {
@@ -83,27 +79,27 @@ public abstract class KafkaTestBase {
         log.info("=".repeat(80));
     }
 
-    // ── @BeforeEach ───────────────────────────────────────────────────────────
-
+    /**
+     * MDC уже заполнен к этому моменту — {@link KafkaTestExecutionListener}
+     * зарегистрирован первым в {@code @ExtendWith} и его {@code beforeEach}
+     * вызывается до этого метода.
+     */
     @BeforeEach
     void setUp(TestInfo testInfo) {
         testStartTime = System.currentTimeMillis();
         log.info("=".repeat(80));
         log.info("START  {}", testInfo.getDisplayName());
-        log.info("Thread {}", Thread.currentThread().getName());
         log.info("=".repeat(80));
 
         kafka = new KafkaTestFacade(CONFIG);
         ALL_FACADES.add(kafka);
-
         log.debug("Facade initialized");
     }
-
-    // ── @AfterEach ────────────────────────────────────────────────────────────
 
     @AfterEach
     void tearDown(TestInfo testInfo) {
         long duration = System.currentTimeMillis() - testStartTime;
+        // MDC ещё присутствует — KafkaTestExecutionListener.afterEach вызывается после
         log.info("=".repeat(80));
         log.info("END    {} ({}ms)", testInfo.getDisplayName(), duration);
         log.info("=".repeat(80));
@@ -117,14 +113,6 @@ public abstract class KafkaTestBase {
         }
     }
 
-    // ── @AfterAll ─────────────────────────────────────────────────────────────
-
-    /**
-     * Глобальная очистка: закрывает все адаптеры из всех потоков.
-     * <p>
-     * Вызывает {@code closeAll()} на каждом живом facade — адаптеры используют
-     * WeakReference-трекинг и закрывают клиенты из всех thread'ов ForkJoinPool.
-     */
     @AfterAll
     static void globalCleanup() {
         log.info("=".repeat(80));
@@ -149,18 +137,10 @@ public abstract class KafkaTestBase {
         log.info("=".repeat(80));
     }
 
-    // ── package-private helpers ───────────────────────────────────────────────
-
-    /**
-     * Регистрирует новый facade в {@code ALL_FACADES} для гарантированной очистки.
-     * Вызывается из {@link KafkaTestHelpers#createNewFacade()}.
-     */
     public KafkaTestFacade registerFacade(KafkaTestFacade facade) {
         ALL_FACADES.add(facade);
         return facade;
     }
-
-    // ── private ───────────────────────────────────────────────────────────────
 
     private void cleanupTopics() {
         if (createdTopics.isEmpty()) return;

@@ -88,8 +88,6 @@ public class ConfigFactory {
         }
     }
 
-    // ── Validation ─────────────────────────────────────────────────────────────
-
     /**
      * Performs fail-fast validation of all required properties.
      * <p>
@@ -104,10 +102,8 @@ public class ConfigFactory {
     static void validateRequiredProperties(KafkaConfig cfg) {
         List<String> missing = new ArrayList<>();
 
-        // ── Always required ────────────────────────────────────────────────────
         requireNonBlank(cfg.kafkaBootstrapServers(), "kafka.bootstrap.servers", missing);
 
-        // ── SSL/TLS — required only for SSL and SASL_SSL protocols ─────────────
         String protocol = cfg.securityProtocol();
         if (isSslProtocol(protocol)) {
             requireNonBlank(cfg.sslTruststoreLocation(),  "kafka.ssl.truststore.location",  missing);
@@ -117,7 +113,6 @@ public class ConfigFactory {
             requireNonBlank(cfg.sslKeyPassword(),         "kafka.ssl.key.password",         missing);
         }
 
-        // ── Aiven API — validated as a group: all-or-nothing ──────────────────
         // If any Aiven property is set, all three must be present.
         boolean anyAiven = isPresent(cfg.aivenApiToken())
                 || isPresent(cfg.aivenProjectName())
@@ -128,12 +123,10 @@ public class ConfigFactory {
             requireNonBlank(cfg.aivenServiceName(),   "aiven.service.name",   missing);
         }
 
-        // ── REST API credentials — required only when URL is provided ──────────
         if (isPresent(cfg.kafkaRestApiUrl())) {
             requireNonBlank(cfg.kafkaRestApiPassword(), "kafka.rest.api.password", missing);
         }
 
-        // ── Schema Registry credentials — required only when URL is provided ───
         if (isPresent(cfg.schemaRegistryUrl())) {
             requireNonBlank(cfg.schemaRegistryPassword(), "kafka.schema.registry.password", missing);
         }
@@ -145,8 +138,6 @@ public class ConfigFactory {
         log.debug("Configuration validation passed. Protocol: {}, SSL: {}",
                 protocol, isSslProtocol(protocol));
     }
-
-    // ── Helpers ────────────────────────────────────────────────────────────────
 
     private static boolean isSslProtocol(String protocol) {
         return protocol != null

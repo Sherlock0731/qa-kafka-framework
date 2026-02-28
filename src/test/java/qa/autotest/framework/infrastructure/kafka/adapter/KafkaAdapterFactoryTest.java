@@ -52,8 +52,6 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class KafkaAdapterFactoryTest {
 
-    // ── mock KafkaConfig — минимальный набор методов ───────────────────────
-
     @Mock
     KafkaConfig config;
 

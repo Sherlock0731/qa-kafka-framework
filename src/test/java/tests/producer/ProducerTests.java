@@ -306,8 +306,6 @@ public class ProducerTests extends BaseTest {
         assertThat(sentCount).isEqualTo(20);
     }
 
-    // ── helper ────────────────────────────────────────────────────────────────
-
     private List<Message> buildMessages(String topicName, String keyPrefix, int count) {
         List<Message> list = new ArrayList<>();
         for (int i = 0; i < count; i++) {

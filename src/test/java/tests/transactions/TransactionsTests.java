@@ -320,8 +320,6 @@ public class TransactionsTests extends BaseTest {
         log.info("TC-048: Recovery: {} failed, {} recovered", failedCount, recoveredCount);
     }
 
-    // ── helpers ───────────────────────────────────────────────────────────────
-
     private List<Message> buildMessages(String topicName, String keyPrefix,
                                         int count, Map<String, String> headers) {
         List<Message> list = new ArrayList<>();

@@ -49,8 +49,6 @@ public class AivenApiController implements CleanupPort {
         this.requestSpec = createRequestSpecification();
     }
 
-    // ── RequestSpec factory ───────────────────────────────────────────────
-
     private RequestSpecification createRequestSpecification() {
         return new RequestSpecBuilder()
                 .setBaseUri(config.aivenApiUrl())
@@ -60,8 +58,6 @@ public class AivenApiController implements CleanupPort {
                 .addFilter(new ResponseLoggingFilter(LogDetail.ALL))
                 .build();
     }
-
-    // ── CleanupPort ───────────────────────────────────────────────────────
 
     /**
      * {@inheritDoc}
@@ -188,8 +184,6 @@ public class AivenApiController implements CleanupPort {
             return false;
         }
     }
-
-    // ── additional operations not part of CleanupPort ─────────────────────
 
     /**
      * Deletes all topics whose names start with the configured test-topic prefix.

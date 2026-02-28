@@ -52,8 +52,6 @@ public class KafkaConsumerGroupAdapter implements ConsumerGroupReader {
         log.debug("KafkaConsumerGroupAdapter initialized");
     }
 
-    // ── AdminClient factory ───────────────────────────────────────────────────
-
     private static AdminClient createAdminClient(KafkaConfig config) {
         Properties props = KafkaPropertiesBuilder.buildBaseProperties(config);
         props.put(AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, "10000");
@@ -61,8 +59,6 @@ public class KafkaConsumerGroupAdapter implements ConsumerGroupReader {
         KafkaPropertiesBuilder.configureSecurity(props, config);
         return AdminClient.create(props);
     }
-
-    // ── ConsumerGroupReader ───────────────────────────────────────────────────
 
     /**
      * Fetches the current state of the given consumer group from the broker
@@ -124,14 +120,10 @@ public class KafkaConsumerGroupAdapter implements ConsumerGroupReader {
         }
     }
 
-    // ── lifecycle ─────────────────────────────────────────────────────────────
-
     public void close() {
         log.debug("Closing KafkaConsumerGroupAdapter");
         adminClient.close(Duration.ofSeconds(5));
     }
-
-    // ── helpers ───────────────────────────────────────────────────────────────
 
     private ConsumerGroup.GroupState mapGroupState(ConsumerGroupState kafkaState) {
         if (kafkaState == null) return ConsumerGroup.GroupState.DEAD;

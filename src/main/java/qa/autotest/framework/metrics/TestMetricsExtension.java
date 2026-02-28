@@ -56,8 +56,6 @@ public class TestMetricsExtension
      */
     private static final String COLLECTOR_KEY = "metricsCollector";
 
-    // ── BeforeAllCallback ─────────────────────────────────────────────────────
-
     /**
      * Creates a fresh {@link TestMetricsCollector} for this test class and
      * puts it into the class-level Store before any test method runs.
@@ -74,8 +72,6 @@ public class TestMetricsExtension
         log.debug("TestMetricsCollector registered for suite: {}", suiteName);
     }
 
-    // ── AfterAllCallback ──────────────────────────────────────────────────────
-
     /**
      * After all tests in the class have finished, logs a summary and attaches
      * the metrics JSON to the Allure report.
@@ -88,8 +84,6 @@ public class TestMetricsExtension
             collector.attachMetricsToAllure();
         }
     }
-
-    // ── Public static accessor ────────────────────────────────────────────────
 
     /**
      * Retrieves the {@link TestMetricsCollector} associated with the given
@@ -109,8 +103,6 @@ public class TestMetricsExtension
         }
         return target.getStore(NAMESPACE).get(COLLECTOR_KEY, TestMetricsCollector.class);
     }
-
-    // ── Private helpers ───────────────────────────────────────────────────────
 
     private ExtensionContext.Store getStore(ExtensionContext context) {
         return context.getStore(NAMESPACE);

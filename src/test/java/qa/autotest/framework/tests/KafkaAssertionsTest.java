@@ -29,8 +29,6 @@ import static tests.KafkaAssertions.*;
 @DisplayName("KafkaAssertions")
 class KafkaAssertionsTest {
 
-    // ── fixtures ──────────────────────────────────────────────────────────────
-
     private static final Topic TOPIC = Topic.builder().name("qa-test-assert").build();
 
     private static Message message(String key, String content) {

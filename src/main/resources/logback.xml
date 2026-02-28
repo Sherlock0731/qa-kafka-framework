@@ -1,73 +1,110 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-    
-    <!-- Thread-safe file appender -->
+
+    <!--
+        MDC fields populated by KafkaTestExecutionListener.beforeEach():
+          test.id     — short UUID suffix (8 chars), unique per test run
+          test.class  — simple class name  (ConsumerTests)
+          test.method — method name        (shouldConsumeFromBeginning)
+          test.thread — JVM thread name    (pool-1-thread-2)
+
+        Pattern token: %X{key:-default}
+          %-8X{test.id}  — left-aligned, padded / truncated to 8 chars
+          %-30X{...}     — reserved space for class.method keeps columns stable
+
+        Why MDC and not %thread:
+          %thread shows the pool thread name (pool-1-thread-2) which tells us
+          WHICH thread, but not WHICH test.  In parallel runs multiple tests
+          share threads in a fork-join pool, so the thread name alone is
+          insufficient for attribution.  MDC test.id is set once per test and
+          cleared afterwards, giving an unambiguous per-test identifier.
+    -->
+
+    <!-- ── Console — human-readable with colour ──────────────────────────── -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%-8X{test.id}] [%thread] %highlight(%-5level) %cyan(%logger{36}) - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- ── FILE — single aggregated log, all threads ─────────────────────── -->
     <appender name="FILE" class="ch.qos.logback.core.FileAppender">
         <file>target/logs/test-execution.log</file>
         <append>true</append>
-        <encoder>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
-        </encoder>
         <prudent>true</prudent>
-    </appender>
-    
-    <!-- Console appender with thread information -->
-    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>%d{HH:mm:ss.SSS} [%thread] %highlight(%-5level) %cyan(%logger{36}) - %msg%n</pattern>
+            <!--
+                Full MDC block in file log: easier to grep/awk by test.id.
+                Format: timestamp [test.id|test.class#test.method|thread] LEVEL logger - msg
+            -->
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%X{test.id}|%X{test.class}#%X{test.method}|%thread] %-5level %logger{36} - %msg%n</pattern>
         </encoder>
     </appender>
-    
-    <!-- Separate appender for each thread -->
+
+    <!-- ── SIFT — one file per test (discriminated by test.id) ───────────── -->
+    <!--
+        Previously discriminated by threadName, which broke under parallel
+        execution: a thread runs multiple tests, so one file would mix log
+        entries from different tests.
+
+        Discriminating by test.id produces one file per test execution.
+        File name: target/logs/test-<id>.log  (e.g. target/logs/test-a3f9c12b.log)
+
+        test.id is set in KafkaTestExecutionListener.beforeEach() and cleared
+        in afterEach(), so files are naturally scoped to a single test.
+    -->
     <appender name="SIFT" class="ch.qos.logback.classic.sift.SiftingAppender">
         <discriminator>
-            <key>threadName</key>
-            <defaultValue>main</defaultValue>
+            <key>test.id</key>
+            <defaultValue>no-test</defaultValue>
         </discriminator>
         <sift>
-            <appender name="FILE-\${threadName}" class="ch.qos.logback.core.FileAppender">
-                <file>target/logs/thread-\${threadName}.log</file>
+            <appender name="FILE-${test.id}" class="ch.qos.logback.core.FileAppender">
+                <file>target/logs/test-${test.id}.log</file>
                 <append>true</append>
                 <encoder>
-                    <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</pattern>
+                    <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%X{test.class}#%X{test.method}|%thread] %-5level %logger{36} - %msg%n</pattern>
                 </encoder>
-                <prudent>true</prudent>
             </appender>
         </sift>
     </appender>
-    
-    <!-- Async wrapper for better performance -->
+
+    <!-- ── Async wrappers ─────────────────────────────────────────────────── -->
     <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
         <appender-ref ref="FILE"/>
         <queueSize>512</queueSize>
         <discardingThreshold>0</discardingThreshold>
         <includeCallerData>false</includeCallerData>
     </appender>
-    
+
     <appender name="ASYNC_SIFT" class="ch.qos.logback.classic.AsyncAppender">
         <appender-ref ref="SIFT"/>
         <queueSize>512</queueSize>
         <discardingThreshold>0</discardingThreshold>
+        <!--
+            includeCallerData=true needed for SiftingAppender so that
+            the discriminator value (MDC test.id) is available in the
+            async worker thread that actually writes the log event.
+        -->
+        <includeCallerData>true</includeCallerData>
     </appender>
-    
-    <!-- Root logger -->
+
+    <!-- ── Root logger ────────────────────────────────────────────────────── -->
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>
         <appender-ref ref="ASYNC_FILE"/>
         <appender-ref ref="ASYNC_SIFT"/>
     </root>
-    
-    <!-- Framework loggers -->
+
+    <!-- ── Framework loggers ──────────────────────────────────────────────── -->
     <logger name="qa.autotest" level="DEBUG" additivity="false">
         <appender-ref ref="CONSOLE"/>
         <appender-ref ref="ASYNC_FILE"/>
         <appender-ref ref="ASYNC_SIFT"/>
     </logger>
-    
-    <!-- Kafka logging -->
+
+    <!-- ── Noise reduction ────────────────────────────────────────────────── -->
     <logger name="org.apache.kafka" level="INFO"/>
-    
-    <!-- Suppress noisy libraries -->
-    <logger name="io.netty" level="WARN"/>
-    
+    <logger name="io.netty"         level="WARN"/>
+
 </configuration>

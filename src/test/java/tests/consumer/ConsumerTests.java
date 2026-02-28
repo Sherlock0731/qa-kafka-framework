@@ -293,8 +293,6 @@ public class ConsumerTests extends BaseTest {
         log.info("TC-011E: Consumed {} of 50 messages", consumed.size());
     }
 
-    // ── helper ────────────────────────────────────────────────────────────────
-
     private List<Message> buildMessages(String topicName, String keyPrefix, int count) {
         List<Message> list = new ArrayList<>();
         for (int i = 0; i < count; i++) {

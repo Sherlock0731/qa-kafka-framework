@@ -35,7 +35,6 @@ class ConfigFactoryTest {
         ConfigFactory.resetConfig();
     }
 
-    // ── Хелпер: мок с минимальным PLAINTEXT-набором ───────────────────────────
     private KafkaConfig plaintextMock() {
         KafkaConfig mock = mock(KafkaConfig.class);
         when(mock.kafkaBootstrapServers()).thenReturn(BOOTSTRAP);

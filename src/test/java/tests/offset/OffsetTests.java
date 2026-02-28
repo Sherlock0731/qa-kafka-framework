@@ -168,8 +168,6 @@ public class OffsetTests extends BaseTest {
                 records.size(), newRecords.size());
     }
 
-    // ── helper ────────────────────────────────────────────────────────────────
-
     private List<Message> buildMessages(String topicName, String keyPrefix, int count) {
         List<Message> list = new ArrayList<>();
         for (int i = 0; i < count; i++) {

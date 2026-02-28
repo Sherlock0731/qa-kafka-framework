@@ -39,7 +39,6 @@ class TopicManagementServiceTest {
 
     private TopicManagementService service;
 
-    // ── fixtures ──────────────────────────────────────────────────────────
     private static Topic testTopic(String name) {
         return Topic.builder().name(name).partitionCount(2).build();
     }

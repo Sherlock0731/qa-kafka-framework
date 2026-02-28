@@ -116,8 +116,6 @@ public class ConsumeResult {
         return !success && errorCategory != null && errorCategory.isRetryable();
     }
 
-    // ── Factory methods ────────────────────────────────────────────────────────
-
     /**
      * Factory: creates successful result
      */

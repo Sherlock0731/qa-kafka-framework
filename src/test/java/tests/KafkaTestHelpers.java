@@ -27,8 +27,6 @@ import java.util.UUID;
  */
 public abstract class KafkaTestHelpers extends KafkaTestBase {
 
-    // ── Topic factory ─────────────────────────────────────────────────────────
-
     /**
      * Создаёт топик с авто-именем и 2 партициями.
      */
@@ -92,8 +90,6 @@ public abstract class KafkaTestHelpers extends KafkaTestBase {
         return created;
     }
 
-    // ── Publish helpers ───────────────────────────────────────────────────────
-
     /**
      * Публикует сообщение по ключу и значению.
      */
@@ -117,8 +113,6 @@ public abstract class KafkaTestHelpers extends KafkaTestBase {
     public List<PublishResult> publishBatch(List<Message> messages) {
         return kafka.publishBatch(messages);
     }
-
-    // ── Consume helpers ───────────────────────────────────────────────────────
 
     /**
      * Подписывается на топик, перематывает в начало и считывает до {@code expectedCount}
@@ -161,8 +155,6 @@ public abstract class KafkaTestHelpers extends KafkaTestBase {
         return result.isSuccess() && result.getMessageCount() >= expectedCount;
     }
 
-    // ── Facade factory ────────────────────────────────────────────────────────
-
     /**
      * Создаёт новый {@link KafkaTestFacade} с уникальным consumer group ID.
      * <p>
@@ -179,8 +171,6 @@ public abstract class KafkaTestHelpers extends KafkaTestBase {
     public KafkaTestFacade createNewFacade() {
         return registerFacade(new KafkaTestFacade(CONFIG));
     }
-
-    // ── Name generation ───────────────────────────────────────────────────────
 
     /**
      * Генерирует уникальное имя топика по схеме {@code qa-test-{prefix}-{UUID}}.

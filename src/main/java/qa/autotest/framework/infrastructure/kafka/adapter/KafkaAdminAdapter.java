@@ -36,8 +36,6 @@ public class KafkaAdminAdapter implements TopicRepository {
         log.debug("KafkaAdminAdapter initialized");
     }
 
-    // ── AdminClient factory ───────────────────────────────────────────────────
-
     private static AdminClient createAdminClient(KafkaConfig config) {
         Properties props = KafkaPropertiesBuilder.buildBaseProperties(config);
         props.put(AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, "30000");
@@ -45,8 +43,6 @@ public class KafkaAdminAdapter implements TopicRepository {
         KafkaPropertiesBuilder.configureSecurity(props, config);
         return AdminClient.create(props);
     }
-
-    // ── TopicRepository ───────────────────────────────────────────────────────
 
     @Override
     public boolean createTopic(Topic topic) {
@@ -259,8 +255,6 @@ public class KafkaAdminAdapter implements TopicRepository {
         log.debug("Closing KafkaAdminAdapter");
         adminClient.close(Duration.ofSeconds(5));
     }
-
-    // ── helpers ───────────────────────────────────────────────────────────────
 
     private String getConfigValue(Config config, String key, String defaultValue) {
         ConfigEntry entry = config.get(key);

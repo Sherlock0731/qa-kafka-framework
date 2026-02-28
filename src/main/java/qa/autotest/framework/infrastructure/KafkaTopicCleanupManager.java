@@ -65,8 +65,6 @@ public class KafkaTopicCleanupManager {
         return new KafkaTopicCleanupManager(config, new AivenApiController(config));
     }
 
-    // ── public API ────────────────────────────────────────────────────────
-
     /**
      * Cleans up all test topics created during test execution.
      * <p>
@@ -160,8 +158,6 @@ public class KafkaTopicCleanupManager {
                 "- Cleanup Enabled: "      + config.cleanupTopics() + "\n" +
                 "- Aiven API Cleanup Enabled: " + config.cleanupViaAivenApiEnabled() + "\n";
     }
-
-    // ── helpers ───────────────────────────────────────────────────────────
 
     private List<String> filterTestTopics(List<String> allTopics) {
         String prefix = config.testTopicPrefix();

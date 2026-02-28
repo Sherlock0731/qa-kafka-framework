@@ -44,8 +44,6 @@ import java.util.concurrent.atomic.AtomicLong;
 @Slf4j
 public class TestMetricsCollector {
 
-    // ── Per-instance counters (instance fields — no static state) ────────────
-
     private final Map<String, AtomicInteger> errorCounts      = new ConcurrentHashMap<>();
     private final Map<String, AtomicInteger> categoryCounts   = new ConcurrentHashMap<>();
     private final Map<String, AtomicLong>   operationDurations = new ConcurrentHashMap<>();
@@ -62,8 +60,6 @@ public class TestMetricsCollector {
         this.suiteName = suiteName;
         log.debug("TestMetricsCollector created for suite: {}", suiteName);
     }
-
-    // ── Write operations ──────────────────────────────────────────────────────
 
     /** Records a failed test's error category. */
     public void recordError(String category) {
@@ -90,8 +86,6 @@ public class TestMetricsCollector {
             failedTests.incrementAndGet();
         }
     }
-
-    // ── Read operations ───────────────────────────────────────────────────────
 
     /** Returns the error count for {@code category}, or 0 if never recorded. */
     public int getErrorCount(String category) {

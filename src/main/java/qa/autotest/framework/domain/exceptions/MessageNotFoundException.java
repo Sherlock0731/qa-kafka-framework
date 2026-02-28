@@ -74,8 +74,6 @@ public class MessageNotFoundException extends RuntimeException {
         this.totalMessagesInspected = totalMessagesInspected;
     }
 
-    // ── Factory methods ────────────────────────────────────────────────────────
-
     /**
      * Creates an exception with full diagnostic context.
      *
@@ -115,8 +113,6 @@ public class MessageNotFoundException extends RuntimeException {
         return new MessageNotFoundException(conditionDescription, attemptsExhausted, pollTimeout, 0);
     }
 
-    // ── Accessors ──────────────────────────────────────────────────────────────
-
     /**
      * Returns the human-readable description of the predicate condition.
      */
@@ -151,8 +147,6 @@ public class MessageNotFoundException extends RuntimeException {
     public Duration getTotalTimeSpent() {
         return pollTimeout.multipliedBy(attemptsExhausted);
     }
-
-    // ── Private ────────────────────────────────────────────────────────────────
 
     private static String buildMessage(
             String conditionDescription,

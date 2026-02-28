@@ -30,8 +30,6 @@ public class GlobalCleanupListener implements TestExecutionListener {
     private static final KafkaConfig CONFIG = ConfigFactory.getConfig();
     private static final KafkaTopicCleanupManager CLEANUP_MANAGER = KafkaTopicCleanupManager.create(CONFIG);
 
-    // ── TestExecutionListener ─────────────────────────────────────────────
-
     /**
      * Called before any tests are executed.
      */

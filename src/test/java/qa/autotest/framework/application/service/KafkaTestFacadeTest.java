@@ -49,7 +49,6 @@ class KafkaTestFacadeTest {
 
     private KafkaTestFacade facade;
 
-    // ── fixtures ──────────────────────────────────────────────────────────
     private static final String GROUP_ID = "unit-test-group";
     private static final String TOPIC_NAME = "qa-test-unit";
 

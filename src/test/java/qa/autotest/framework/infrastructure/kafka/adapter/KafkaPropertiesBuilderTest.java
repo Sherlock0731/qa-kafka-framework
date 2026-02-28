@@ -31,7 +31,6 @@ import static org.mockito.Mockito.*;
 @DisplayName("KafkaPropertiesBuilder")
 class KafkaPropertiesBuilderTest {
 
-    // ── SSL fixture values ─────────────────────────────────────────────────
     private static final String BOOTSTRAP = "kafka.example.com:9092";
     private static final String TRUSTSTORE_PATH = "/etc/kafka/truststore.jks";
     private static final String TRUSTSTORE_PASS = "trust-secret";
@@ -40,8 +39,6 @@ class KafkaPropertiesBuilderTest {
     private static final String KEYSTORE_PASS = "key-secret";
     private static final String KEYSTORE_TYPE = "PKCS12";
     private static final String KEY_PASS = "key-secret";
-
-    // ── helpers ────────────────────────────────────────────────────────────
 
     private KafkaConfig plaintextConfig() {
         KafkaConfig cfg = mock(KafkaConfig.class);

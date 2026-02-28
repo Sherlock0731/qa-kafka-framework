@@ -114,8 +114,6 @@ public class PublishResult {
         return success && message.hasExplicitPartition();
     }
 
-    // ── Factory methods ────────────────────────────────────────────────────────
-
     /**
      * Factory: creates successful result
      */

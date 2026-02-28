@@ -35,8 +35,6 @@ public class AllureKafkaListener implements TestWatcher {
     private static final DateTimeFormatter FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    // ── TestWatcher callbacks ─────────────────────────────────────────────────
-
     @Override
     public void testSuccessful(ExtensionContext context) {
         String testName  = context.getDisplayName();
@@ -98,8 +96,6 @@ public class AllureKafkaListener implements TestWatcher {
         log.info("⊗ Test DISABLED: {}.{}", className, testName);
         reason.ifPresent(r -> log.info("Reason: {}", r));
     }
-
-    // ── Failure categorization ────────────────────────────────────────────────
 
     /**
      * Categorizes a failure by walking the exception type hierarchy.
@@ -173,8 +169,6 @@ public class AllureKafkaListener implements TestWatcher {
         }
         return cause;
     }
-
-    // ── Allure attachments ────────────────────────────────────────────────────
 
     private void attachTestInfo(ExtensionContext context, Status status) {
         StringBuilder info = new StringBuilder();

@@ -201,8 +201,6 @@ public class PerformanceTests extends BaseTest {
                 .isGreaterThan(messageCount * 4 / 10);
     }
 
-    // ── helper ────────────────────────────────────────────────────────────────
-
     private List<Message> buildMessages(String topicName, String keyPrefix, int count) {
         List<Message> list = new ArrayList<>();
         for (int i = 0; i < count; i++) {
