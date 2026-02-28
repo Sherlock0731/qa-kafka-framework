@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.producer.ProducerTests
+Test Method:  testProducerBufferFull
+Display Name: TC-010: Producer buffer overflow handling
+Status:       PASSED
+Time:         2026-02-28 04:58:09
+Thread:       main
+Tag: producer
+Tag: critical
