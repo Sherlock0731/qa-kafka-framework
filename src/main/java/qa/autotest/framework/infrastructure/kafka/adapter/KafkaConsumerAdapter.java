@@ -11,6 +11,7 @@ import qa.autotest.framework.domain.model.Message;
 import qa.autotest.framework.domain.model.Topic;
 import qa.autotest.framework.domain.port.MessageConsumer;
 import qa.autotest.framework.infrastructure.KafkaPropertiesBuilder;
+import org.slf4j.MDC;
 
 import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
@@ -80,6 +81,14 @@ public class KafkaConsumerAdapter implements MessageConsumer {
         props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, config.consumerMaxPollRecords());
         props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, config.consumerSessionTimeoutMs());
         props.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, 3000);
+
+        // Embed MDC test context into client.id — Kafka names its internal threads
+        // "kafka-consumer-coordinator-thread | {client.id}", so the test.id becomes
+        // visible in every log line from that thread without any MDC inheritance.
+        String testId = MDC.get("test.id");
+        if (testId != null) {
+            props.put(ConsumerConfig.CLIENT_ID_CONFIG, "consumer-" + testId);
+        }
 
         KafkaPropertiesBuilder.configureSecurity(props, config);
 

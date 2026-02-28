@@ -23,7 +23,7 @@
     <!-- ── Console — human-readable with colour ──────────────────────────── -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>%d{HH:mm:ss.SSS} [%-8X{test.id}] [%thread] %highlight(%-5level) %cyan(%logger{36}) - %msg%n</pattern>
+            <pattern>%d{HH:mm:ss.SSS} [%-8X{test.id:---------}] [%thread] %highlight(%-5level) %cyan(%logger{36}) - %msg%n</pattern>
         </encoder>
     </appender>
 
@@ -37,7 +37,7 @@
                 Full MDC block in file log: easier to grep/awk by test.id.
                 Format: timestamp [test.id|test.class#test.method|thread] LEVEL logger - msg
             -->
-            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%X{test.id}|%X{test.class}#%X{test.method}|%thread] %-5level %logger{36} - %msg%n</pattern>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%X{test.id:--}|%X{test.class:-framework}#%X{test.method:-setup}|%thread] %-5level %logger{36} - %msg%n</pattern>
         </encoder>
     </appender>
 

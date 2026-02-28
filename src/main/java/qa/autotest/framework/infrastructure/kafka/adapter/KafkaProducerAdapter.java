@@ -13,6 +13,7 @@ import qa.autotest.framework.domain.model.Message;
 import qa.autotest.framework.domain.model.PublishResult;
 import qa.autotest.framework.domain.port.MessagePublisher;
 import qa.autotest.framework.infrastructure.KafkaPropertiesBuilder;
+import org.slf4j.MDC;
 
 import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
@@ -68,6 +69,15 @@ public class KafkaProducerAdapter implements MessagePublisher {
         props.put(ProducerConfig.BATCH_SIZE_CONFIG, config.producerBatchSize());
         props.put(ProducerConfig.LINGER_MS_CONFIG, config.producerLingerMs());
         props.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, config.producerRequestTimeoutMs());
+
+        // Embed MDC test context into client.id — Kafka names its internal threads
+        // "kafka-producer-network-thread | {client.id}", so the test.id becomes
+        // visible in every log line from that thread without any MDC inheritance.
+        // MDC uses ThreadLocal, which Kafka-created threads cannot inherit otherwise.
+        String testId = MDC.get("test.id");
+        if (testId != null) {
+            props.put(ProducerConfig.CLIENT_ID_CONFIG, "producer-" + testId);
+        }
 
         KafkaPropertiesBuilder.configureSecurity(props, config);
 
