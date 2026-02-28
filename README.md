@@ -22,7 +22,7 @@
 - **Богатая иерархия исключений** — 8 типов специализированных исключений с контекстной информацией и `KafkaErrorCategory`-классификацией для Allure
 - **Aiven API Controller** — управление топиками через REST API Aiven (Bearer-token авторизация)
 - **Allure listeners** — `AllureKafkaListener` (7 категорий сбоев), `KafkaTestExecutionListener`
-- **157 тест-методов**: 66 интеграционных + 91 unit (application, domain, config, infra, metrics, utils)
+- **259 тест-методов**: 66 интеграционных + 193 unit (application, domain, config, infra, metrics, utils)
 - **CI/CD через GitHub Actions** с публикацией Allure-отчёта на GitHub Pages
 - **Docker / Docker Compose** для запуска в контейнере
 
@@ -46,6 +46,7 @@ src/
 │   │   │   ├── PublishResult.java
 │   │   │   └── Topic.java
 │   │   └── port/                                # Outbound Ports (интерфейсы)
+│   │       ├── CleanupPort.java                 # getTopicList/deleteTopic/deleteTopics/verifyConnection
 │   │       ├── ConsumerGroupReader.java          # describeConsumerGroup()
 │   │       ├── MessageConsumer.java              # subscribe/poll/consumeAll/seek/commit/isAssigned
 │   │       ├── MessagePublisher.java             # publish/publishAsync/publishBatch/flush
@@ -62,16 +63,17 @@ src/
 │   ├── infrastructure/                          # Infrastructure Layer
 │   │   ├── kafka/adapter/
 │   │   │   ├── KafkaAdapterFactory.java         # Единственная точка создания адаптеров
-│   │   │   ├── KafkaAdminAdapter.java           # implements TopicRepository + ConsumerGroupReader
+│   │   │   ├── KafkaAdminAdapter.java           # implements TopicRepository (ISP: только topic CRUD)
 │   │   │   ├── KafkaConsumerAdapter.java        # implements MessageConsumer
+│   │   │   ├── KafkaConsumerGroupAdapter.java   # implements ConsumerGroupReader (ISP: свой AdminClient)
 │   │   │   └── KafkaProducerAdapter.java        # implements MessagePublisher
 │   │   ├── api/aiven/
-│   │   │   ├── AivenApiController.java          # REST-клиент к Aiven Management API
+│   │   │   ├── AivenApiController.java          # implements CleanupPort (REST Assured, Bearer token)
 │   │   │   └── dto/
 │   │   │       ├── AivenTopicDeleteResponseDto.java
 │   │   │       └── AivenTopicListResponseDto.java
 │   │   ├── KafkaPropertiesBuilder.java          # SSL/TLS config builder
-│   │   └── KafkaTopicCleanupManager.java
+│   │   └── KafkaTopicCleanupManager.java        # DIP: инжектирует CleanupPort через конструктор
 │   │
 │   ├── config/
 │   │   ├── ConfigFactory.java                   # Fail-fast validation, 4-уровневый приоритет
@@ -101,13 +103,13 @@ src/
     │   ├── ci.properties
     │   ├── default.properties
     │   └── local.properties
-    └── logback.xml
+    └── logback.xml 
 ```
 
 ```
 src/test/java/
 │
-├── qa/autotest/framework/                       # Unit Tests (91 тест-метод)
+├── qa/autotest/framework/                       # Unit Tests (193 тест-метода)
 │   ├── application/service/
 │   │   ├── KafkaTestFacadeTest.java             # 20 тестов (mock ports)
 │   │   ├── MessageConsumptionServiceTest.java   # 18 тестов
@@ -119,6 +121,7 @@ src/test/java/
 │   │   └── DomainModelTest.java                # 49 тестов
 │   ├── infrastructure/kafka/adapter/
 │   │   ├── InfrastructureAdapterPrivateMethodsTest.java  # 14 тестов (reflection)
+│   │   ├── KafkaAdapterFactoryTest.java        # 17 тестов (ISP: разделение адаптеров по портам)
 │   │   └── KafkaPropertiesBuilderTest.java     # 5 тестов
 │   ├── metrics/
 │   │   └── TestMetricsCollectorTest.java       # 17 тестов
@@ -252,7 +255,7 @@ mvn allure:serve    # запуск в браузере
 | `consumer-group` | `ConsumerGroupTests` | 1 | Rebalance группы потребителей |
 | `smoke` | (несколько) | 7 | Быстрая проверка ключевой функциональности |
 
-### Unit-тесты (91 тест)
+### Unit-тесты (193 теста)
 
 | Класс | Тестов | Описание |
 |-------|--------|----------|
@@ -265,9 +268,10 @@ mvn allure:serve    # запуск в браузере
 | `InfrastructureAdapterPrivateMethodsTest` | 14 | private methods через reflection |
 | `ConfigFactoryTest` | 14 | Fail-fast validation, 4-уровневый приоритет |
 | `RetryContextTest` | 10 | Allure attachment helper |
+| `KafkaAdapterFactoryTest` | 17 | ISP-фикс: разделение адаптеров по портам (reflection) |
 | `KafkaPropertiesBuilderTest` | 5 | SSL/TLS properties builder |
 
-**Итого: 157 тест-методов** (66 интеграционных + 91 unit)
+**Итого: 259 тест-методов** (66 интеграционных + 193 unit)
 
 ---
 

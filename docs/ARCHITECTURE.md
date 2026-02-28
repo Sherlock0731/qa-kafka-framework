@@ -44,7 +44,8 @@
 │  │ Topic           ConsumeResult   │  │ MessageConsumer          ││
 │  │ Partition       ConsumerGroup   │  │ TopicRepository          ││
 │  │ KafkaErrorCategory (13 кат.)   │  │ ConsumerGroupReader      ││
-│  └─────────────────────────────────┘  └──────────────────────────┘│
+│  └─────────────────────────────────┘  │ CleanupPort             ││
+│                                       └──────────────────────────┘│
 │                                                                    │
 │  Domain не зависит ни от чего. Ports — контракты для адаптеров.   │
 └───────────────────────────┬────────────────────────────────────────┘
@@ -53,17 +54,20 @@
 │                    INFRASTRUCTURE LAYER                            │
 │                                                                    │
 │  ┌─── Kafka Adapters (KafkaAdapterFactory — единая точка) ──────┐ │
-│  │ KafkaProducerAdapter   implements MessagePublisher           │ │
-│  │ KafkaConsumerAdapter   implements MessageConsumer            │ │
-│  │   • consumeAll(): consecutive-empty threshold=3 (fixed)      │ │
-│  │   • isAssigned(): local assignment check (fixed)             │ │
-│  │   • catch(Exception): interrupt flag restored (fixed)        │ │
-│  │ KafkaAdminAdapter      implements TopicRepository            │ │
-│  │                        implements ConsumerGroupReader        │ │
+│  │ KafkaProducerAdapter      implements MessagePublisher        │ │
+│  │ KafkaConsumerAdapter      implements MessageConsumer         │ │
+│  │   • consumeAll(): consecutive-empty threshold=3              │ │
+│  │   • isAssigned(): local assignment check (no network)        │ │
+│  │   • catch(Exception): interrupt flag restored                │ │
+│  │ KafkaAdminAdapter         implements TopicRepository         │ │
+│  │   (ISP: только topic CRUD, собственный AdminClient)         │ │
+│  │ KafkaConsumerGroupAdapter implements ConsumerGroupReader     │ │
+│  │   (ISP: только describeConsumerGroups, свой AdminClient)    │ │
 │  └──────────────────────────────────────────────────────────────┘ │
 │                                                                    │
 │  ┌─── Aiven API ─────────────────────────────────────────────────┐ │
-│  │ AivenApiController  (REST Assured, Bearer token)             │ │
+│  │ AivenApiController  implements CleanupPort                   │ │
+│  │   (REST Assured, Bearer token)                               │ │
 │  │ dto/AivenTopicListResponseDto                                │ │
 │  │ dto/AivenTopicDeleteResponseDto                              │ │
 │  └──────────────────────────────────────────────────────────────┘ │
@@ -133,9 +137,10 @@ qa-kafka-framework/
 │   │   │   │   │   ├── PublishResult.java
 │   │   │   │   │   └── Topic.java
 │   │   │   │   └── port/
+│   │   │   │       ├── CleanupPort.java
 │   │   │   │       ├── ConsumerGroupReader.java
 │   │   │   │       ├── MessageConsumer.java
-│   │   │   │       └── MessagePublisher.java
+│   │   │   │       ├── MessagePublisher.java
 │   │   │   │       └── TopicRepository.java
 │   │   │   ├── exceptions/
 │   │   │   │   ├── ConfigurationException.java
@@ -156,7 +161,8 @@ qa-kafka-framework/
 │   │   │   │   ├── kafka/adapter/
 │   │   │   │   │   ├── KafkaAdapterFactory.java
 │   │   │   │   │   ├── KafkaAdminAdapter.java
-│   │   │   │   │   ├── KafkaConsumerAdapter.java   ← 3 исправления
+│   │   │   │   │   ├── KafkaConsumerAdapter.java
+│   │   │   │   │   ├── KafkaConsumerGroupAdapter.java
 │   │   │   │   │   └── KafkaProducerAdapter.java
 │   │   │   │   ├── KafkaPropertiesBuilder.java
 │   │   │   │   └── KafkaTopicCleanupManager.java
@@ -186,7 +192,8 @@ qa-kafka-framework/
 │           │   │   └── DomainModelTest.java                  (49)
 │           │   ├── infrastructure/kafka/adapter/
 │           │   │   ├── InfrastructureAdapterPrivateMethodsTest.java (14)
-│           │   │   └── KafkaPropertiesBuilderTest.java       (5)
+│           │   │   ├── KafkaAdapterFactoryTest.java                 (17)
+│           │   │   └── KafkaPropertiesBuilderTest.java              (5)
 │           │   ├── metrics/
 │           │   │   └── TestMetricsCollectorTest.java         (17)
 │           │   └── utils/
@@ -250,7 +257,7 @@ qa-kafka-framework/
 - **Produce**: `SERIALIZATION_ERROR`, `TOPIC_NOT_FOUND`, `BROKER_NOT_AVAILABLE`, `BUFFER_EXHAUSTED`
 - **Consume**: `DESERIALIZATION_ERROR`, `GROUP_COORDINATION_ERROR`, `OFFSET_OUT_OF_RANGE`
 
-Каждая категория несёт флаг `retryable` и человекочитаемое `displayName` для Allure-отчётов.
+Каждая категория несёт флаг `retryable` и человеко читаемое `displayName` для Allure-отчётов.
 
 #### Ports — `domain/port/`
 
@@ -259,9 +266,10 @@ qa-kafka-framework/
 | **MessagePublisher** | `KafkaProducerAdapter` | `publish()`, `publishAsync()`, `publishBatch()`, `publishBatchAsync()`, `flush()`, `close()` |
 | **MessageConsumer** | `KafkaConsumerAdapter` | `subscribe()`, `poll()`, `pollMessages()`, `consumeAll()`, `seek()`, `seekToBeginning()`, `seekToEnd()`, `isAssigned()`, `commitSync()`, `commitAsync()`, `close()` |
 | **TopicRepository** | `KafkaAdminAdapter` | `createTopic()`, `createTopics()`, `deleteTopic()`, `deleteTopics()`, `exists()`, `getAllTopics()`, `getTopicsByPattern()`, `getPartitions()`, `waitForTopicCreation()`, `close()` |
-| **ConsumerGroupReader** | `KafkaAdminAdapter` | `describeConsumerGroup(groupId)` |
+| **ConsumerGroupReader** | `KafkaConsumerGroupAdapter` | `describeConsumerGroup(groupId)` |
+| **CleanupPort** | `AivenApiController` | `getTopicList()`, `deleteTopic()`, `deleteTopics()`, `verifyConnection()` |
 
-`KafkaAdminAdapter` реализует два порта (`TopicRepository + ConsumerGroupReader`) — оба требуют `AdminClient`, что исключает дублирование клиента. `KafkaConsumerAdapter` реализует только `MessageConsumer`, не смешивая consumer и admin операции.
+Каждый порт обслуживается выделенным адаптером: `KafkaAdminAdapter` → только `TopicRepository`, `KafkaConsumerGroupAdapter` → только `ConsumerGroupReader` (каждый имеет собственный `AdminClient`). `KafkaConsumerAdapter` реализует только `MessageConsumer`, не смешивая consumer и admin операции. `AivenApiController` реализует `CleanupPort` для управления топиками через Aiven REST API (DIP: `KafkaTopicCleanupManager` инжектирует `CleanupPort` через конструктор).
 
 ---
 
@@ -276,7 +284,7 @@ qa-kafka-framework/
 | **MessageConsumptionService** | `MessageConsumer`, `ConsumerGroupReader` | `consumeUntil(Predicate)`, `consumeUntilOrThrow()`, `consumeAll()`, `consumeExactly(n)`. Возвращает `Optional<Message>` или бросает `MessageNotFoundException`. |
 | **TopicManagementService** | `TopicRepository` | Создание/удаление топиков, `createTopicWithDlq()`, `createTopicWithRetries(level)`. |
 
-Все сервисы тестируются с Mockito mock-портами (91 unit-тест) без реального Kafka.
+Все сервисы тестируются с Mockito mock-портами без реального Kafka.
 
 ---
 
@@ -289,8 +297,9 @@ qa-kafka-framework/
 | Адаптер | Port | Особенности |
 |---------|------|-------------|
 | **KafkaProducerAdapter** | `MessagePublisher` | ThreadLocal<KafkaProducer> + Set<WeakReference> для трекинга из всех потоков. |
-| **KafkaConsumerAdapter** | `MessageConsumer` | ThreadLocal<KafkaConsumer> + Set<WeakReference>. Три исправленных метода (см. ниже). |
-| **KafkaAdminAdapter** | `TopicRepository` + `ConsumerGroupReader` | Один `AdminClient` обслуживает оба порта. |
+| **KafkaConsumerAdapter** | `MessageConsumer` | ThreadLocal<KafkaConsumer> + Set<WeakReference>. |
+| **KafkaAdminAdapter** | `TopicRepository` | Собственный `AdminClient`. Только topic CRUD (create/delete/describe). |
+| **KafkaConsumerGroupAdapter** | `ConsumerGroupReader` | Собственный `AdminClient`. Только `describeConsumerGroups()`. ISP-фикс: отделён от `KafkaAdminAdapter`. |
 
 #### Aiven API — `infrastructure/api/aiven/`
 
@@ -552,11 +561,11 @@ Tests → Application → Domain ← Infrastructure
 
 | Принцип | Статус | Детали |
 |---------|--------|--------|
-| **SRP** | ✅ | `KafkaConsumerAdapter` — только `KafkaConsumer`; `KafkaAdminAdapter` — только `AdminClient` |
+| **SRP** | ✅ | `KafkaConsumerAdapter` — только `KafkaConsumer`; `KafkaAdminAdapter` — только topic CRUD; `KafkaConsumerGroupAdapter` — только group introspection |
 | **OCP** | ✅ | Новый тип сериализации → новый `MessageSerializer` port без изменения адаптеров |
 | **LSP** | ✅ | Все port-реализации заменяемы mock-объектами в unit-тестах |
-| **ISP** | ✅ | `ConsumerGroupReader` отделён от `MessageConsumer`; `isAssigned()` в правильном интерфейсе |
-| **DIP** | ✅ | `KafkaTestFacade` не импортирует ни один конкретный адаптер |
+| **ISP** | ✅ | `KafkaAdminAdapter` → только `TopicRepository`; `KafkaConsumerGroupAdapter` → только `ConsumerGroupReader`; `isAssigned()` в `MessageConsumer`, не в `TopicRepository` |
+| **DIP** | ✅ | `KafkaTestFacade` не импортирует адаптеры; `KafkaTopicCleanupManager` инжектирует `CleanupPort` — не знает об `AivenApiController` |
 
 ### Fail-Fast Configuration
 
