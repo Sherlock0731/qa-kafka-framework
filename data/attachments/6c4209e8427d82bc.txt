@@ -1,9 +1,0 @@
-=== Test Execution Info ===
-
-Test Class:   tests.transactions.TransactionsTests
-Test Method:  testTransactionTimeout
-Display Name: TC-046: Timeout транзакции
-Status:       PASSED
-Time:         2026-03-02 05:18:04
-Thread:       main
-Tag: transactions
