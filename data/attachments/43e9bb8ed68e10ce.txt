@@ -1,0 +1,9 @@
+=== Test Execution Info ===
+
+Test Class:   tests.transactions.TransactionsTests
+Test Method:  testReadCommittedIsolation
+Display Name: TC-043: Read committed isolation level
+Status:       PASSED
+Time:         2026-03-07 05:00:49
+Thread:       main
+Tag: transactions
