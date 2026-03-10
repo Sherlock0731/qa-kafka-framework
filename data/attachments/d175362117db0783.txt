@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.producer.ProducerTests
+Test Method:  testProducerCompression
+Display Name: TC-006: Message compression
+Status:       PASSED
+Time:         2026-03-10 05:12:08
+Thread:       main
+Tag: producer
+Tag: critical
