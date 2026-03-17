@@ -1,0 +1,11 @@
+=== Test Execution Info ===
+
+Test Class:   tests.partitioning.PartitioningTests
+Test Method:  testHashPartitioning
+Display Name: TC-039: Hash партиционирование по ключу
+Status:       PASSED
+Time:         2026-03-17 05:20:28
+Thread:       main
+Tag: smoke
+Tag: partitioning
+Tag: critical
