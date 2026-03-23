@@ -1,0 +1,9 @@
+=== Test Execution Info ===
+
+Test Class:   tests.errorhandling.ErrorHandlingTests
+Test Method:  testNetworkErrorRecovery
+Display Name: TC-029B: Recovery from network errors
+Status:       PASSED
+Time:         2026-03-23 05:37:46
+Thread:       main
+Tag: error-handling
