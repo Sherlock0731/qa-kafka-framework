@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.producer.ProducerTests
+Test Method:  testTransactionalProducer
+Display Name: TC-011: Transactional message sending
+Status:       PASSED
+Time:         2026-03-24 05:25:50
+Thread:       main
+Tag: producer
+Tag: critical
