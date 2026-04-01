@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.ordering.OrderingTests
+Test Method:  testOrderingWithKey
+Display Name: TC-028: Ordering guarantee for keyed messages
+Status:       PASSED
+Time:         2026-04-01 05:53:18
+Thread:       main
+Tag: ordering
+Tag: critical

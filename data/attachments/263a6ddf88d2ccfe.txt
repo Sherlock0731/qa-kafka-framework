@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.dlq.DlqTests
+Test Method:  testDlqRoutingLogic
+Display Name: TC-031: DLQ message routing with metadata
+Status:       PASSED
+Time:         2026-04-01 06:02:39
+Thread:       main
+Tag: dlq
+Tag: critical
