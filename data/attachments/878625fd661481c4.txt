@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.consumer.ConsumerTests
+Test Method:  testMaxPollRecords
+Display Name: TC-014: Max poll records limit
+Status:       PASSED
+Time:         2026-04-11 05:32:26
+Thread:       main
+Tag: consumer
+Tag: critical
