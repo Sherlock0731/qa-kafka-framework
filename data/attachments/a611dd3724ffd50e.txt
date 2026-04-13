@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.offset.OffsetTests
+Test Method:  testCommitSpecificOffset
+Display Name: TC-029: Commit определенного offset'а
+Status:       PASSED
+Time:         2026-04-13 06:17:44
+Thread:       main
+Tag: offset
+Tag: critical

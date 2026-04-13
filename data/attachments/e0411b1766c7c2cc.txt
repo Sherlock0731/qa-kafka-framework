@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.idempotence.IdempotenceTests
+Test Method:  testNoDuplicatesOnRetry
+Display Name: TC-024: Дубликаты при retry
+Status:       PASSED
+Time:         2026-04-13 06:17:19
+Thread:       main
+Tag: idempotence
+Tag: critical
