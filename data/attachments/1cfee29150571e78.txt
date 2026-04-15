@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.producer.ProducerTests
+Test Method:  testProducerMetrics
+Display Name: TC-012: Producer metrics collection
+Status:       PASSED
+Time:         2026-04-15 06:08:33
+Thread:       main
+Tag: producer
+Tag: critical

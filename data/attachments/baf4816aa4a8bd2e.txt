@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.producer.ProducerTests
+Test Method:  testSendOversizedMessage
+Display Name: TC-005: Отправка oversized сообщения
+Status:       PASSED
+Time:         2026-04-15 06:07:50
+Thread:       main
+Tag: producer
+Tag: critical
