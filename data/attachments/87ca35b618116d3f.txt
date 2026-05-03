@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.dlq.DlqTests
+Test Method:  testRetryFromDlq
+Display Name: TC-032: Retry processing from DLQ
+Status:       PASSED
+Time:         2026-05-03 06:31:36
+Thread:       main
+Tag: dlq
+Tag: critical
