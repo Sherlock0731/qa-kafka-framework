@@ -1,0 +1,9 @@
+=== Test Execution Info ===
+
+Test Class:   tests.performance.PerformanceTests
+Test Method:  testEndToEndLatency
+Display Name: TC-034: End-to-end latency measurement
+Status:       PASSED
+Time:         2026-05-09 06:12:32
+Thread:       main
+Tag: performance
