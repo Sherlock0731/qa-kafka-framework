@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.offset.OffsetTests
+Test Method:  testAutoCommitOffset
+Display Name: TC-018: Automatic offset commit
+Status:       PASSED
+Time:         2026-05-14 14:54:26
+Thread:       main
+Tag: offset
+Tag: critical
