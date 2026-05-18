@@ -1,0 +1,11 @@
+=== Test Execution Info ===
+
+Test Class:   tests.idempotence.IdempotenceTests
+Test Method:  testIdempotentProducer
+Display Name: TC-016: Включение идемпотентного producer
+Status:       PASSED
+Time:         2026-05-18 08:00:37
+Thread:       main
+Tag: smoke
+Tag: idempotence
+Tag: critical
