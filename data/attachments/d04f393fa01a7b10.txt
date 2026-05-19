@@ -1,9 +1,0 @@
-=== Test Execution Info ===
-
-Test Class:   tests.performance.PerformanceTests
-Test Method:  testBatchSizeOptimization
-Display Name: TC-035: Optimal batch size for throughput
-Status:       PASSED
-Time:         2026-05-18 08:02:57
-Thread:       main
-Tag: performance
