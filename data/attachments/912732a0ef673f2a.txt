@@ -1,1 +1,0 @@
-Test Execution Time: 10204 ms (10 seconds)
