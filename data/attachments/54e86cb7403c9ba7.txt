@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.partitioning.PartitioningTests
+Test Method:  testPartitionDistribution
+Display Name: TC-020: Распределение по партициям
+Status:       PASSED
+Time:         2026-06-01 09:21:17
+Thread:       main
+Tag: partitioning
+Tag: critical
