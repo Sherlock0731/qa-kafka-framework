@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.transactions.TransactionsTests
+Test Method:  testExactlyOnceSemantics
+Display Name: TC-044: Exactly-once семантика
+Status:       PASSED
+Time:         2026-06-05 08:07:57
+Thread:       main
+Tag: transactions
+Tag: exactly-once

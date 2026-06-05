@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.consumer.ConsumerTests
+Test Method:  testManualPartitionAssignment
+Display Name: TC-011C: Manual partition assignment
+Status:       PASSED
+Time:         2026-06-05 08:13:51
+Thread:       main
+Tag: consumer
+Tag: critical
