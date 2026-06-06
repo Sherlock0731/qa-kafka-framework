@@ -1,0 +1,11 @@
+=== Test Execution Info ===
+
+Test Class:   tests.producer.ProducerTests
+Test Method:  testSendSingleMessage
+Display Name: TC-001: Отправка одиночного сообщения в топик
+Status:       PASSED
+Time:         2026-06-06 06:58:49
+Thread:       main
+Tag: smoke
+Tag: producer
+Tag: critical
