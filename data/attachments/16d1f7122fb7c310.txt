@@ -1,9 +1,0 @@
-=== Test Execution Info ===
-
-Test Class:   tests.transactions.TransactionsTests
-Test Method:  testTransactionRollback
-Display Name: TC-042: Rollback транзакции
-Status:       FAILED
-Time:         2026-06-10 08:09:12
-Thread:       main
-Tag: transactions
