@@ -1,0 +1,9 @@
+=== Test Execution Info ===
+
+Test Class:   tests.transactions.TransactionsTests
+Test Method:  testTransactionCommit
+Display Name: TC-041: Commit транзакции
+Status:       FAILED
+Time:         2026-06-15 10:05:57
+Thread:       main
+Tag: transactions
