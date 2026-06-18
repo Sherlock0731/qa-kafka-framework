@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.transactions.TransactionsTests
+Test Method:  testTransactionRecoveryAfterFailure
+Display Name: TC-048: Восстановление после сбоя транзакции
+Status:       PASSED
+Time:         2026-06-18 08:51:51
+Thread:       main
+Tag: transactions
+Tag: error-handling
