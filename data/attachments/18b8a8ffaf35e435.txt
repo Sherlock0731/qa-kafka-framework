@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.consumer.ConsumerTests
+Test Method:  testConsumerGroupCoordination
+Display Name: TC-012: Multiple consumers in same group
+Status:       FAILED
+Time:         2026-06-23 07:47:19
+Thread:       main
+Tag: consumer
+Tag: critical
