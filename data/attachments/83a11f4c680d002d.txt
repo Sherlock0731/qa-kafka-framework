@@ -1,9 +1,0 @@
-=== Test Execution Info ===
-
-Test Class:   tests.consumergroup.ConsumerGroupTests
-Test Method:  testConsumerGroupRebalance
-Display Name: TC-037: Consumer group rebalance
-Status:       PASSED
-Time:         2026-06-28 07:52:46
-Thread:       main
-Tag: consumer-group
