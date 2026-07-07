@@ -1,9 +1,0 @@
-=== Test Execution Info ===
-
-Test Class:   tests.errorhandling.ErrorHandlingTests
-Test Method:  testSerializationError
-Display Name: TC-029: Handle serialization errors
-Status:       PASSED
-Time:         2026-07-06 08:27:30
-Thread:       main
-Tag: error-handling
