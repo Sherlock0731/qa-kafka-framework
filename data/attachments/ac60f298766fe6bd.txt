@@ -1,9 +1,0 @@
-=== Test Execution Info ===
-
-Test Class:   tests.transactions.TransactionsTests
-Test Method:  testTransactionalSend
-Display Name: TC-040: Транзакционная отправка сообщений
-Status:       PASSED
-Time:         2026-07-10 07:43:05
-Thread:       main
-Tag: transactions
