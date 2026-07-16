@@ -1,9 +1,0 @@
-=== Test Execution Info ===
-
-Test Class:   tests.errorhandling.ErrorHandlingTests
-Test Method:  testTopicNotFound
-Display Name: TC-029D: Handle topic not found error
-Status:       PASSED
-Time:         2026-07-15 06:21:54
-Thread:       main
-Tag: error-handling
