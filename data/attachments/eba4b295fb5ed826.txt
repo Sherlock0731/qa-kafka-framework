@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.offset.OffsetTests
+Test Method:  testOffsetResetStrategy
+Display Name: TC-019: Offset reset strategy
+Status:       FAILED
+Time:         2026-07-18 06:05:36
+Thread:       main
+Tag: offset
+Tag: critical
