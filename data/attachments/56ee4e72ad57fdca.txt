@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.producer.ProducerTests
+Test Method:  testProducerAcks
+Display Name: TC-007: Producer acks=all guarantee
+Status:       PASSED
+Time:         2026-07-27 07:06:11
+Thread:       main
+Tag: producer
+Tag: critical
