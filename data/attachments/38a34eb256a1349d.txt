@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.producer.ProducerTests
+Test Method:  testProducerRetry
+Display Name: TC-008: Producer automatic retry on transient errors
+Status:       PASSED
+Time:         2026-07-30 06:28:19
+Thread:       main
+Tag: producer
+Tag: critical
