@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.idempotence.IdempotenceTests
+Test Method:  testProducerIdRotation
+Display Name: TC-025A: Producer ID and sequence number
+Status:       PASSED
+Time:         2026-08-02 06:37:38
+Thread:       main
+Tag: idempotence
+Tag: critical
