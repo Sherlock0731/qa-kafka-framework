@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.idempotence.IdempotenceTests
+Test Method:  testProducerIdempotence
+Display Name: TC-023: Проверка идемпотентности producer
+Status:       PASSED
+Time:         2026-08-03 07:04:07
+Thread:       main
+Tag: idempotence
+Tag: critical
