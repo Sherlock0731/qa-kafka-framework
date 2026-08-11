@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.idempotence.IdempotenceTests
+Test Method:  testExactlyOnceSemantics
+Display Name: TC-025: Exactly-once message delivery
+Status:       PASSED
+Time:         2026-08-11 05:09:22
+Thread:       main
+Tag: idempotence
+Tag: critical
