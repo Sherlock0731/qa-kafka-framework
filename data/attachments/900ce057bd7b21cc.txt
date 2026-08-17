@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.ordering.OrderingTests
+Test Method:  testOrderingMultiplePartitions
+Display Name: TC-027: Message ordering across partitions
+Status:       PASSED
+Time:         2026-08-17 04:40:44
+Thread:       main
+Tag: ordering
+Tag: critical
