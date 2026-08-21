@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.producer.ProducerTests
+Test Method:  testSendMessageWithKey
+Display Name: TC-004: Отправка сообщений с одинаковым ключом в одну партицию
+Status:       PASSED
+Time:         2026-08-21 04:37:45
+Thread:       main
+Tag: producer
+Tag: critical
