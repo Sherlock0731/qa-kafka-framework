@@ -1,0 +1,9 @@
+=== Test Execution Info ===
+
+Test Class:   tests.errorhandling.ErrorHandlingTests
+Test Method:  testDeserializationError
+Display Name: TC-029A: Handle deserialization errors
+Status:       PASSED
+Time:         2026-08-28 15:55:13
+Thread:       main
+Tag: error-handling
