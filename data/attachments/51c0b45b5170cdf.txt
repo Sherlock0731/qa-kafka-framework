@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.consumer.ConsumerTests
+Test Method:  testConsumerPollTimeout
+Display Name: TC-015: Consumer poll timeout
+Status:       PASSED
+Time:         2026-08-29 10:44:11
+Thread:       main
+Tag: consumer
+Tag: critical

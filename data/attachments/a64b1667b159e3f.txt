@@ -1,0 +1,10 @@
+=== Test Execution Info ===
+
+Test Class:   tests.partitioning.PartitioningTests
+Test Method:  testPartitionKeyConsistency
+Display Name: TC-022: Same key goes to same partition
+Status:       PASSED
+Time:         2026-08-29 10:48:16
+Thread:       main
+Tag: partitioning
+Tag: critical
