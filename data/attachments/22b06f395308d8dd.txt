@@ -1,9 +1,0 @@
-=== Test Execution Info ===
-
-Test Class:   tests.transactions.TransactionsTests
-Test Method:  testMultiTopicTransaction
-Display Name: TC-045: Транзакции между несколькими топиками
-Status:       PASSED
-Time:         2026-09-09 08:39:45
-Thread:       main
-Tag: transactions
